@@ -24,6 +24,19 @@ function showMsg(text, isError = false) {
   el.className = "msg " + (isError ? "error" : "success");
 }
 
+function showMsg(text, isError = false) {
+  const el = document.getElementById("message");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "msg " + (isError ? "error" : "success");
+}
+
+function clearMsg() {
+  const el = document.getElementById("message");
+  if (!el) return;
+  el.textContent = "";
+  el.className = "msg";
+}
 /* =========================================================
    모바일 우측 슬라이딩 드로어 제어
    ========================================================= */
