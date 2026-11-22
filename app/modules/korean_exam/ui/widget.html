@@ -1,53 +1,437 @@
 <div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
-    <h2 style="margin:0;">한국어 실력 평가 모의고사</h2>
-    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-      <button type="button" id="kexam-tab-take" class="subtab-btn active" onclick="switchKexamTab('take')">시험 응시</button>
-      <button type="button" id="kexam-tab-history" class="subtab-btn" onclick="switchKexamTab('history')">내 시험 기록</button>
-      <button type="button" id="kexam-tab-papers" class="subtab-btn kexam-staff-only hidden" onclick="switchKexamTab('papers')">[출제] 시험지 관리</button>
-      <button type="button" id="kexam-tab-questions" class="subtab-btn kexam-staff-only hidden" onclick="switchKexamTab('questions')">[출제] 문제은행</button>
-      <button type="button" id="kexam-tab-groups" class="subtab-btn kexam-staff-only hidden" onclick="switchKexamTab('groups')">[출제] 그룹 지문</button>
-    </div>
-  </div>
+  <h2 id="kexam-title" style="margin-top:0;">한국어 시험 (모의고사)</h2>
 
-  <!-- 비회원 사전 안내 배너 -->
-  <div id="ke-guest-notice-banner" class="hidden" style="background:#fffbeb; border:1px solid #fcd34d; color:#92400e; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-    <span>※ 현재 <b>비회원</b> 상태입니다. 시험 응시와 채점은 가능하나 <b>시험 결과가 저장되지 않으며 오답 반복 재시험을 이용할 수 없습니다.</b></span>
-    <button type="button" style="background:#d97706; padding:5px 10px; font-size:12px;" onclick="openAuthModalForExam()">로그인 / 회원가입</button>
+  <!-- 상단 메뉴 탭 -->
+  <div class="admin-subnav">
+    <button type="button" id="kexam-tab-take" class="subtab-btn active" onclick="switchKexamTab('take')">시험 응시</button>
+    <button type="button" id="kexam-tab-history" class="subtab-btn" onclick="switchKexamTab('history')">내 시험 기록 (회차별)</button>
+    <button type="button" id="kexam-tab-papers" class="subtab-btn kexam-staff-only hidden" onclick="switchKexamTab('papers')">[출제] 시험지 제작·관리</button>
+    <button type="button" id="kexam-tab-questions" class="subtab-btn kexam-staff-only hidden" onclick="switchKexamTab('questions')">[문제은행] 문항 등록·검색</button>
+    <button type="button" id="kexam-tab-groups" class="subtab-btn kexam-staff-only hidden" onclick="switchKexamTab('groups')">[문제은행] 그룹 지문 관리</button>
   </div>
-
-  <!-- 공유 URL(?paper_id=...)로 접속 시 표시되는 시험지 안내 랜딩 박스 -->
-  <div id="ke-shared-paper-landing" class="hidden" style="background:#eff6ff; border:2px solid #3b82f6; border-radius:10px; padding:16px; margin-bottom:16px;"></div>
 
   <!-- =========================================================
-       [탭 1] 시험 응시
+       탭 1: 시험 응시
        ========================================================= -->
   <div id="kexam-sec-take">
-    <!-- 1-1. 시험 선택 / 설정 화면 -->
+    <!-- 비회원 안내 배너 -->
+    <div id="ke-guest-notice-banner" class="hidden" style="background:#fffbeb; border:1px solid #fcd34d; border-left:5px solid #f59e0b; border-radius:8px; padding:14px 16px; margin-bottom:14px;">
+      <div style="font-weight:800; color:#92400e; font-size:14px; margin-bottom:4px;">📢 비회원 응시 안내 (결과 미저장 안내)</div>
+      <div style="font-size:13px; color:#78350f; line-height:1.55;">
+        현재 로그인하지 않은 <b>비회원 상태</b>입니다. 응시와 즉시 채점은 가능하지만 <b>시험 결과는 기록되지 않습니다.</b><br/>
+        오답 재시험 및 회차별 기록 관리를 원하시면 로그인 후 이용해 주세요.
+      </div>
+      <div style="margin-top:8px;">
+        <button type="button" style="background:#d97706; padding:6px 12px; font-size:12px;" onclick="openBaseView('auth')">로그인 / 회원가입</button>
+      </div>
+    </div>
+
+    <!-- 공유 URL/QR 직행 카드 -->
+    <div id="ke-shared-paper-landing" class="hidden" style="background:#eff6ff; border:2px solid #3b82f6; border-radius:10px; padding:18px; margin-bottom:16px;"></div>
+
     <div id="kexam-setup-box">
-      <div style="display:flex; gap:8px; margin-bottom:14px;">
-        <button type="button" id="ke-mode-btn-paper" onclick="switchExamSetupMode('PAPER')">공식 배포 시험지 목록</button>
-        <button type="button" id="ke-mode-btn-random" class="secondary" onclick="switchExamSetupMode('RANDOM')">조건별 랜덤 출제</button>
+      <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:#eff6ff; padding:10px 14px; border-radius:8px; border:1px solid #bfdbfe;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="ke-auto-play" checked style="width:auto;" />
+          <label for="ke-auto-play" style="margin:0; cursor:pointer; color:#1e40af;">시험 시작 시 첫 번째 듣기/음성 문항 자동 순차 재생</label>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button type="button" id="ke-mode-btn-paper" style="padding:6px 12px; font-size:12px;" onclick="switchExamSetupMode('PAPER')">선생님 출제 시험지 선택</button>
+          <button type="button" id="ke-mode-btn-random" class="secondary" style="padding:6px 12px; font-size:12px;" onclick="switchExamSetupMode('RANDOM')">조건별 랜덤 출제</button>
+        </div>
       </div>
 
-      <!-- 공식 배포 시험지 목록 영역 -->
-      <div id="kexam-paper-select-box" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <strong style="font-size:15px; color:#0f172a;">응시 가능한 공식 시험지 목록</strong>
-          <button type="button" class="secondary" style="padding:5px 10px; font-size:12px;" onclick="loadPublishedExamPapersForStudent()">↻ 목록 새로고침</button>
-        </div>
+      <!-- 1-A. 출제 시험지 목록 -->
+      <div id="kexam-paper-select-box" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px;">
+        <h4 style="margin:0 0 10px 0; color:#0f172a;">출제된 시험지 목록 (원하는 시험지를 선택해 응시하세요)</h4>
         <div id="ke-published-papers-list"></div>
       </div>
 
-      <!-- 조건별 랜덤 출제 설정 폼 -->
-      <form id="kexam-random-setup-box" class="hidden" onsubmit="startKoreanExam(event)" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px;">
-        <h4 style="margin:0 0 12px 0;">조건별 랜덤 모의고사 생성</h4>
+      <!-- 1-B. 조건별 랜덤 모의고사 -->
+      <div id="kexam-random-setup-box" class="hidden" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:18px;">
+        <h4 style="margin:0 0 12px 0; color:#0f172a;">조건별 랜덤 모의고사 직접 구성</h4>
+        <form onsubmit="startKoreanExam(event)">
+          <div class="row" style="margin-bottom:10px;">
+            <div style="flex:2;">
+              <label>시험 제목</label>
+              <input type="text" id="ke-title" value="한국어 종합 능력 평가" required />
+            </div>
+            <div>
+              <label>난이도 (레벨)</label>
+              <select id="ke-level">
+                <option value="">전체 레벨 혼합</option>
+                <option value="초급">초급</option>
+                <option value="중급">중급</option>
+                <option value="고급">고급</option>
+              </select>
+            </div>
+            <div>
+              <label>평가 영역</label>
+              <select id="ke-category">
+                <option value="">전체 영역</option>
+                <option value="듣기">듣기</option>
+                <option value="읽기">읽기</option>
+                <option value="어휘·문법">어휘·문법</option>
+                <option value="쓰기">쓰기</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-bottom:14px;">
+            <div>
+              <label>문항 유형</label>
+              <select id="ke-qtype">
+                <option value="">객관식 + 주관식 혼합</option>
+                <option value="MCQ">객관식만</option>
+                <option value="SHORT">주관식만</option>
+              </select>
+            </div>
+            <div>
+              <label>출제 문항 수</label>
+              <input type="number" id="ke-max-q" value="10" min="1" max="100" required />
+            </div>
+            <div>
+              <label>제한 시간 (분)</label>
+              <input type="number" id="ke-mins" value="10" min="1" max="120" required />
+            </div>
+            <div>
+              <label>태그 필터 (선택)</label>
+              <input type="text" id="ke-tag" placeholder="예: 대화, 빈칸" />
+            </div>
+          </div>
+
+          <button type="submit" style="width:100%; padding:11px; font-size:14px;">랜덤 시험지 생성 및 응시 시작</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- 1-2. 시험 진행 화면 -->
+    <div id="kexam-play-box" class="hidden">
+      <div style="position:sticky; top:0; z-index:60; background:#1e293b; color:#fff; padding:12px 16px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div>
+          <span id="ke-round-badge" class="tag" style="background:#3b82f6; color:#fff; margin-right:6px;">1회차 본시험</span>
+          <strong id="ke-play-title" style="color:#38bdf8;">시험 진행 중</strong>
+          <span id="ke-progress-text" style="font-size:13px; margin-left:10px; color:#cbd5e1;">0 / 0 응답</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button type="button" style="background:#dc2626; padding:6px 10px; font-size:12px;" onclick="stopAllExamAudio()">■ 음성 정지</button>
+          <span id="ke-timer" style="font-size:18px; font-weight:800; color:#fbbf24;">10:00</span>
+          <button type="button" style="background:#16a34a; padding:7px 14px;" onclick="submitKoreanExam(false)">답안 제출</button>
+        </div>
+      </div>
+
+      <div id="ke-sections-container"></div>
+
+      <div style="margin-top:18px; display:flex; gap:10px;">
+        <button type="button" style="flex:1; background:#16a34a; padding:11px;" onclick="submitKoreanExam(false)">시험 종료 및 채점하기</button>
+        <button type="button" class="secondary" onclick="resetKexamToSetup()">시험 중단</button>
+      </div>
+    </div>
+
+    <!-- 1-3. 채점 결과 화면 -->
+    <div id="kexam-result-box" class="hidden">
+      <div id="ke-result-summary" style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:20px; text-align:center; margin-bottom:16px;"></div>
+      <div id="ke-result-actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;"></div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">문항별 상세 정오답 리포트</h3>
+        <div style="display:flex; gap:6px;">
+          <button type="button" id="ke-res-all" style="padding:5px 10px; font-size:12px;" onclick="renderExamResultDetails('ALL')">전체</button>
+          <button type="button" id="ke-res-wrong" class="secondary" style="padding:5px 10px; font-size:12px;" onclick="renderExamResultDetails('WRONG')">틀린 문제만</button>
+        </div>
+      </div>
+      <div id="ke-result-list"></div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       탭 2: 내 시험 기록
+       ========================================================= -->
+  <div id="kexam-sec-history" class="hidden">
+    <div id="ke-history-list"></div>
+    <div id="ke-history-detail" class="hidden" style="margin-top:16px; border-top:2px solid #cbd5e1; padding-top:16px;"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 3: [선생님/관리자] 시험지 제작·관리
+       ========================================================= -->
+  <div id="kexam-sec-papers" class="hidden">
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin-bottom:20px;">
+      <h4 id="kep-form-title" style="margin:0 0 12px 0; color:#1e40af;">[선생님/관리자] 새 시험지 제작 및 문항·배점 구성</h4>
+
+      <div class="row" style="margin-bottom:10px;">
+        <div style="flex:2;">
+          <label>시험지 제목</label>
+          <input type="text" id="kep-title" placeholder="예: 2026년 초급 한국어 1차 평가" />
+        </div>
+        <div>
+          <label>난이도 표기</label>
+          <select id="kep-level">
+            <option value="혼합">혼합</option>
+            <option value="초급">초급</option>
+            <option value="중급">중급</option>
+            <option value="고급">고급</option>
+          </select>
+        </div>
+        <div>
+          <label>영역 표기</label>
+          <select id="kep-category">
+            <option value="종합">종합</option>
+            <option value="듣기">듣기</option>
+            <option value="읽기">읽기</option>
+            <option value="어휘·문법">어휘·문법</option>
+            <option value="쓰기">쓰기</option>
+          </select>
+        </div>
+        <div>
+          <label>제한 시간 (분)</label>
+          <input type="number" id="kep-mins" value="15" min="1" max="120" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:14px;">
+        <div style="flex:2;">
+          <label>시험 안내 / 설명 (선택)</label>
+          <input type="text" id="kep-desc" placeholder="예: 듣기 5문항과 읽기 5문항으로 구성된 실전 평가입니다." />
+        </div>
+        <div>
+          <label>학생 응시 공개 여부</label>
+          <select id="kep-published">
+            <option value="true" selected>공개 (학생 응시 가능)</option>
+            <option value="false">비공개 (작성 중)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start;">
+        <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+          <div style="font-weight:700; font-size:14px; margin-bottom:8px; color:#0f172a;">① 문제은행에서 출제할 문항 검색·선택</div>
+          <div class="row" style="margin-bottom:6px;">
+            <input type="text" id="kep-picker-q" placeholder="발문/지문 키워드 검색..." onkeydown="if(event.key==='Enter'){event.preventDefault(); loadPaperPickerQuestions(1);}" />
+            <button type="button" style="width:auto; padding:6px 12px;" onclick="loadPaperPickerQuestions(1)">검색</button>
+          </div>
+          <div class="row" style="margin-bottom:8px;">
+            <select id="kep-picker-level" onchange="loadPaperPickerQuestions(1)">
+              <option value="">전체 난이도</option>
+              <option value="초급">초급</option>
+              <option value="중급">중급</option>
+              <option value="고급">고급</option>
+            </select>
+            <select id="kep-picker-cat" onchange="loadPaperPickerQuestions(1)">
+              <option value="">전체 영역</option>
+              <option value="듣기">듣기</option>
+              <option value="읽기">읽기</option>
+              <option value="어휘·문법">어휘·문법</option>
+              <option value="쓰기">쓰기</option>
+            </select>
+            <select id="kep-picker-type" onchange="loadPaperPickerQuestions(1)">
+              <option value="">전체 유형</option>
+              <option value="MCQ">객관식</option>
+              <option value="SHORT">주관식</option>
+            </select>
+          </div>
+          <div id="kep-picker-summary" style="font-size:12px; color:#64748b; margin-bottom:6px;"></div>
+          <div id="kep-picker-list" style="max-height:430px; overflow-y:auto;"></div>
+          <div id="kep-picker-pagination"></div>
+        </div>
+
+        <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-weight:700; font-size:14px; color:#1e40af;">② 시험지 구성 문항 및 문항별 배점</span>
+            <span id="kep-total-badge" class="tag" style="background:#1d4ed8; color:#fff;">0문항 · 총 0점</span>
+          </div>
+          <div id="kep-selected-list" style="max-height:480px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px; display:flex; gap:8px;">
+        <button type="button" id="kep-submit-btn" style="flex:1; padding:11px; background:#1d4ed8;" onclick="submitExamPaperForm()">시험지 저장 및 배포하기</button>
+        <button type="button" id="kep-cancel-btn" class="secondary hidden" onclick="cancelEditExamPaper()">수정 취소</button>
+      </div>
+    </div>
+
+    <h4 style="margin:0 0 8px 0;">제작된 시험지 목록</h4>
+    <div id="kep-managed-papers-list"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 4: [선생님/관리자] 문제은행 문항 등록·검색
+       ========================================================= -->
+  <div id="kexam-sec-questions" class="hidden">
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin-bottom:18px;">
+      <h4 id="ke-qform-title" style="margin:0 0 12px 0;">[문제은행] 새 시험 문항 등록</h4>
+      <form id="ke-q-form" onsubmit="submitBankQuestion(event)">
+        <div class="row" style="margin-bottom:8px;">
+          <div style="flex:1.5;">
+            <label>소속 그룹 (선택 - 묶음 문제일 때 선택)</label>
+            <select id="keq-group-id">
+              <option value="">단독 문항 (그룹 없음)</option>
+            </select>
+          </div>
+          <div>
+            <label>그룹 내 순서</label>
+            <input type="number" id="keq-order" value="1" min="1" />
+          </div>
+          <div>
+            <label>문제 유형</label>
+            <select id="keq-type" onchange="toggleQuestionTypeFields()">
+              <option value="MCQ" selected>객관식 (4지선다)</option>
+              <option value="SHORT">주관식 (단답/서술)</option>
+            </select>
+          </div>
+          <div>
+            <label>난이도 / 영역 / 기본배점</label>
+            <div style="display:flex; gap:4px;">
+              <select id="keq-level">
+                <option value="초급">초급</option>
+                <option value="중급">중급</option>
+                <option value="고급">고급</option>
+              </select>
+              <select id="keq-category">
+                <option value="읽기">읽기</option>
+                <option value="듣기">듣기</option>
+                <option value="어휘·문법">어휘·문법</option>
+                <option value="쓰기">쓰기</option>
+              </select>
+              <input type="number" id="keq-points" value="10" min="1" style="width:65px;" />
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <label>문제 발문 (질문)</label>
+          <input type="text" id="keq-prompt" placeholder="예: 다음 그림을 보고 알맞은 단어를 고르십시오." required />
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <label>개별 문항 예문/지문 (선택)</label>
+          <textarea id="keq-passage" rows="2" placeholder="빈칸 채우기 지문이나 개별 대화문 입력..."></textarea>
+        </div>
+
+        <div class="row" style="background:#fff; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-bottom:10px;">
+          <div>
+            <label>문항 이미지 URL 또는 파일 업로드</label>
+            <div style="display:flex; gap:4px;">
+              <input type="text" id="keq-img" placeholder="https://..." />
+              <input type="file" accept="image/*" style="width:95px; padding:4px;" onchange="uploadMediaToField(this, 'keq-img')" />
+            </div>
+          </div>
+          <div>
+            <label>문항 오디오 URL 또는 파일 업로드</label>
+            <div style="display:flex; gap:4px;">
+              <input type="text" id="keq-audio" placeholder="https://..." />
+              <input type="file" accept="audio/*" style="width:95px; padding:4px;" onchange="uploadMediaToField(this, 'keq-audio')" />
+            </div>
+          </div>
+          <div>
+            <label>TTS 읽어주기 텍스트 (오디오 없을 시)</label>
+            <input type="text" id="keq-tts" placeholder="자동으로 읽어줄 한국어 문장" />
+          </div>
+        </div>
+
+        <div id="keq-mcq-box" style="background:#fff; border:1px solid #cbd5e1; padding:12px; border-radius:6px; margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <b style="font-size:13px;">객관식 보기 (텍스트, 이미지, 오디오/TTS 지원)</b>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <label style="margin:0;"><input type="checkbox" id="keq-shuffle" checked style="width:auto;" /> 출제 시 보기 랜덤 섞기</label>
+              <div>
+                <span style="font-size:12px; font-weight:700;">정답 번호:</span>
+                <select id="keq-correct-cid" style="width:auto; padding:3px 8px;">
+                  <option value="c1">1번 보기</option>
+                  <option value="c2">2번 보기</option>
+                  <option value="c3">3번 보기</option>
+                  <option value="c4">4번 보기</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div id="keq-choices-editor"></div>
+        </div>
+
+        <div id="keq-short-box" class="hidden" style="background:#fff; border:1px solid #cbd5e1; padding:12px; border-radius:6px; margin-bottom:10px;">
+          <label>주관식 인정 정답 (복수 정답은 쉼표로 구분)</label>
+          <input type="text" id="keq-short-answers" placeholder="예: 먹었어요, 먹었습니다" />
+        </div>
+
         <div class="row" style="margin-bottom:10px;">
-          <div style="flex:2;"><label>시험 제목</label><input type="text" id="ke-title" value="한국어 실력 평가 모의고사" required /></div>
+          <div style="flex:2;"><label>해설 (채점 후 표시)</label><input type="text" id="keq-exp" placeholder="정답인 이유와 오답 해설..." /></div>
+          <div style="flex:1;"><label>태그 (쉼표 구분)</label><input type="text" id="keq-tags" placeholder="예: 그림, 빈칸" /></div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <button type="submit" id="keq-submit-btn">문항 저장하기</button>
+          <button type="button" id="keq-cancel-btn" class="secondary hidden" onclick="cancelEditBankQuestion()">수정 취소</button>
+        </div>
+      </form>
+    </div>
+
+    <div style="background:#f1f5f9; padding:12px; border-radius:8px; margin-bottom:12px;">
+      <div class="row" style="margin-bottom:6px;">
+        <div style="flex:2;">
+          <label>문제은행 검색 (발문/지문)</label>
+          <input type="text" id="keq-search-q" placeholder="검색어 입력..." onkeydown="if(event.key==='Enter'){event.preventDefault(); loadBankQuestionsList(1);}" />
+        </div>
+        <div>
+          <label>난이도</label>
+          <select id="keq-search-level" onchange="loadBankQuestionsList(1)">
+            <option value="">전체</option>
+            <option value="초급">초급</option>
+            <option value="중급">중급</option>
+            <option value="고급">고급</option>
+          </select>
+        </div>
+        <div>
+          <label>영역</label>
+          <select id="keq-search-cat" onchange="loadBankQuestionsList(1)">
+            <option value="">전체</option>
+            <option value="듣기">듣기</option>
+            <option value="읽기">읽기</option>
+            <option value="어휘·문법">어휘·문법</option>
+            <option value="쓰기">쓰기</option>
+          </select>
+        </div>
+        <div>
+          <label>유형</label>
+          <select id="keq-search-type" onchange="loadBankQuestionsList(1)">
+            <option value="">전체</option>
+            <option value="MCQ">객관식</option>
+            <option value="SHORT">주관식</option>
+          </select>
+        </div>
+        <div>
+          <label>태그</label>
+          <input type="text" id="keq-search-tag" placeholder="태그..." onkeydown="if(event.key==='Enter'){event.preventDefault(); loadBankQuestionsList(1);}" />
+        </div>
+        <div style="flex:0;">
+          <button type="button" onclick="loadBankQuestionsList(1)">검색</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="list-summary">
+      <span id="keq-bank-total">전체 0문항</span>
+      <select id="keq-bank-page-size" style="width:auto; padding:4px 8px;" onchange="loadBankQuestionsList(1)">
+        <option value="15" selected>15개씩</option>
+        <option value="30">30개씩</option>
+        <option value="50">50개씩</option>
+      </select>
+    </div>
+    <div id="keq-bank-list"></div>
+    <div id="keq-bank-pagination"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 5: [선생님/관리자] 그룹 지문 관리
+       ========================================================= -->
+  <div id="kexam-sec-groups" class="hidden">
+    <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:16px; margin-bottom:18px;">
+      <h4 id="ke-gform-title" style="margin:0 0 12px 0; color:#5b21b6;">[문제은행] 새 문제 그룹(공통 지문/지시문) 등록</h4>
+      <form id="ke-g-form" onsubmit="submitQuestionGroup(event)">
+        <div class="row" style="margin-bottom:8px;">
+          <div style="flex:2;"><label>그룹 관리 제목</label><input type="text" id="keg-title" placeholder="예: [듣기 3~5번] 다음 대화를 듣고 물음에 답하십시오" required /></div>
           <div>
             <label>난이도</label>
-            <select id="ke-level">
-              <option value="">전체</option>
+            <select id="keg-level">
               <option value="초급">초급</option>
               <option value="중급">중급</option>
               <option value="고급">고급</option>
@@ -55,345 +439,75 @@
           </div>
           <div>
             <label>영역</label>
-            <select id="ke-category">
-              <option value="">전체</option>
+            <select id="keg-category">
               <option value="듣기">듣기</option>
               <option value="읽기">읽기</option>
-              <option value="쓰기">쓰기</option>
               <option value="어휘·문법">어휘·문법</option>
+              <option value="쓰기">쓰기</option>
             </select>
           </div>
-        </div>
-        <div class="row" style="margin-bottom:12px;">
           <div>
-            <label>문항 유형</label>
-            <select id="ke-qtype">
-              <option value="">전체 (객관식+주관식)</option>
-              <option value="MCQ">객관식만</option>
-              <option value="SHORT">주관식만</option>
-            </select>
+            <label>랜덤 출제 시 추출 수 (0=전체)</label>
+            <input type="number" id="keg-sample" value="0" min="0" max="20" />
           </div>
-          <div><label>최대 문항 수</label><input type="number" id="ke-max-q" value="10" min="1" max="100" required /></div>
-          <div><label>제한 시간 (분)</label><input type="number" id="ke-mins" value="10" min="1" max="120" required /></div>
-          <div><label>태그 필터 (선택)</label><input type="text" id="ke-tag" placeholder="예: TOPIK1" /></div>
         </div>
-        <button type="submit" style="width:100%; background:#2563eb; padding:11px;">랜덤 모의고사 시작하기</button>
+
+        <div style="margin-bottom:8px;">
+          <label>공통 지시문 (시험지에 표시됨)</label>
+          <input type="text" id="keg-instruction" placeholder="예: ※ [3~5] 다음 글을 읽고 물음에 답하십시오." required />
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <label>공통 지문 / 스크립트 (선택)</label>
+          <textarea id="keg-passage" rows="3" placeholder="여러 문항이 공유하는 본문 지문..."></textarea>
+        </div>
+
+        <div class="row" style="background:#fff; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-bottom:10px;">
+          <div>
+            <label>그룹 공통 이미지 URL / 업로드</label>
+            <div style="display:flex; gap:4px;">
+              <input type="text" id="keg-img" placeholder="https://..." />
+              <input type="file" accept="image/*" style="width:95px; padding:4px;" onchange="uploadMediaToField(this, 'keg-img')" />
+            </div>
+          </div>
+          <div>
+            <label>그룹 공통 오디오 URL / 업로드</label>
+            <div style="display:flex; gap:4px;">
+              <input type="text" id="keg-audio" placeholder="https://..." />
+              <input type="file" accept="audio/*" style="width:95px; padding:4px;" onchange="uploadMediaToField(this, 'keg-audio')" />
+            </div>
+          </div>
+          <div>
+            <label>그룹 TTS 읽어주기 텍스트 (오디오 없을 시)</label>
+            <input type="text" id="keg-tts" placeholder="자동으로 읽어줄 공통 대화문/지문" />
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <button type="submit" id="keg-submit-btn" style="background:#7c3aed;">그룹 저장하기</button>
+          <button type="button" id="keg-cancel-btn" class="secondary hidden" onclick="cancelEditQuestionGroup()">수정 취소</button>
+        </div>
       </form>
     </div>
 
-    <!-- 1-2. 실제 시험 응시 화면 -->
-    <div id="kexam-play-box" class="hidden">
-      <div style="position:sticky; top:0; z-index:20; background:#1e293b; color:#fff; padding:12px 16px; border-radius:8px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div>
-          <span id="ke-round-badge" class="tag" style="background:#2563eb; color:#fff;">1회차 · 본시험</span>
-          <strong id="ke-play-title" style="font-size:16px; margin-left:6px;"></strong>
-          <div style="font-size:12px; color:#cbd5e1; margin-top:4px;">
-            진행률: <b id="ke-progress-text">0 / 0 응답 완료</b>
-            &nbsp;|&nbsp;
-            <label style="display:inline-flex; align-items:center; gap:4px; color:#cbd5e1; cursor:pointer;">
-              <input type="checkbox" id="ke-auto-play" checked style="width:auto;" /> 첫 문항 자동 듣기
-            </label>
-          </div>
-        </div>
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div style="text-align:right;">
-            <div style="font-size:11px; color:#94a3b8;">남은 시간</div>
-            <div id="ke-timer" style="font-size:22px; font-weight:900; color:#fbbf24;">10:00</div>
-          </div>
-          <button type="button" style="background:#16a34a; padding:10px 16px;" onclick="submitKoreanExam(false)">답안 제출 및 채점</button>
-          <button type="button" class="secondary" style="padding:10px 12px;" onclick="resetKexamToSetup()">나가기</button>
-        </div>
-      </div>
-
-      <div id="ke-sections-container"></div>
-    </div>
-
-    <!-- 1-3. 채점 결과 화면 -->
-    <div id="kexam-result-box" class="hidden">
-      <div id="ke-result-summary" style="background:#eff6ff; border:2px solid #93c5fd; border-radius:10px; padding:18px; text-align:center; margin-bottom:14px;"></div>
-      <div id="ke-result-actions" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;"></div>
-
-      <div style="display:flex; gap:8px; margin-bottom:12px;">
-        <button type="button" id="ke-res-all" onclick="renderExamResultDetails('ALL')">전체 문항 해설</button>
-        <button type="button" id="ke-res-wrong" class="secondary" onclick="renderExamResultDetails('WRONG')">틀린 문항만 보기</button>
-      </div>
-      <div id="ke-result-list"></div>
-    </div>
-  </div>
-
-  <!-- =========================================================
-       [탭 2] 내 시험 기록
-       ========================================================= -->
-  <div id="kexam-sec-history" class="hidden">
-    <h3 style="margin-top:0;">내 시험 응시 기록 및 오답 반복 재시험</h3>
-    <div id="ke-history-list"></div>
-    <div id="ke-history-detail" class="hidden" style="margin-top:16px; padding-top:16px; border-top:2px solid #cbd5e1;"></div>
-  </div>
-
-  <!-- =========================================================
-       [탭 3] [출제] 시험지 관리 (선생님/관리자)
-       ========================================================= -->
-  <div id="kexam-sec-papers" class="hidden">
-    <h3 style="margin-top:0;">공식 시험지 제작 및 배포 관리</h3>
-
-    <form onsubmit="saveExamPaper(event)" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin-bottom:18px;">
-      <h4 id="ke-paper-form-title" style="margin:0 0 10px 0;">새 공식 시험지 만들기</h4>
-      <div class="row" style="margin-bottom:8px;">
-        <div style="flex:2;"><label>시험지 제목</label><input type="text" id="kp-title" placeholder="예: 제1회 한국어 초급 모의고사" required /></div>
-        <div>
-          <label>난이도</label>
-          <select id="kp-level">
-            <option value="초급">초급</option>
-            <option value="중급">중급</option>
-            <option value="고급">고급</option>
-            <option value="혼합" selected>혼합</option>
-          </select>
-        </div>
-        <div>
-          <label>영역</label>
-          <select id="kp-category">
-            <option value="종합" selected>종합</option>
-            <option value="듣기">듣기</option>
-            <option value="읽기">읽기</option>
-            <option value="쓰기">쓰기</option>
-          </select>
-        </div>
-      </div>
-      <div class="row" style="margin-bottom:10px;">
-        <div style="flex:2;"><label>시험지 설명 (선택)</label><input type="text" id="kp-desc" placeholder="학생들에게 안내할 설명..." /></div>
-        <div><label>제한 시간 (분)</label><input type="number" id="kp-mins" value="10" min="1" max="120" required /></div>
-        <div>
-          <label>공개 여부</label>
-          <select id="kp-published">
-            <option value="true" selected>즉시 배포 (공개)</option>
-            <option value="false">비공개 (임시저장)</option>
-          </select>
-        </div>
-      </div>
-
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
-        <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:10px;">
-          <div style="font-weight:700; font-size:13px; margin-bottom:6px;">① 문제은행에서 문항 선택</div>
-          <div style="display:flex; gap:6px; margin-bottom:8px;">
-            <input type="text" id="kp-picker-q" placeholder="문항 검색..." oninput="loadPaperPickerQuestions(1)" />
-            <select id="kp-picker-level" style="width:90px;" onchange="loadPaperPickerQuestions(1)">
-              <option value="">난이도</option>
-              <option value="초급">초급</option>
-              <option value="중급">중급</option>
-              <option value="고급">고급</option>
-            </select>
-          </div>
-          <div id="kp-picker-list" style="max-height:260px; overflow-y:auto;"></div>
-          <div id="kp-picker-pagination" style="margin-top:6px;"></div>
-        </div>
-
-        <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:10px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-weight:700; font-size:13px;">② 시험지 구성 문항 및 배점</span>
-            <span id="kp-selected-summary" style="font-size:12px; color:#1d4ed8; font-weight:700;">총 0문항 · 0점</span>
-          </div>
-          <div id="kp-selected-list" style="max-height:290px; overflow-y:auto;"></div>
-        </div>
-      </div>
-
-      <div style="display:flex; gap:8px;">
-        <button type="submit" id="kp-submit-btn" style="background:#2563eb;">시험지 저장 및 배포</button>
-        <button type="button" id="kp-cancel-btn" class="secondary hidden" onclick="cancelEditExamPaper()">수정 취소</button>
-      </div>
-    </form>
-
-    <h4>등록된 시험지 목록 (링크·QR 배포 / 수정 / 삭제)</h4>
-    <div id="ke-managed-papers-list"></div>
-  </div>
-
-  <!-- =========================================================
-       [탭 4] [출제] 문제은행 (선생님/관리자)
-       ========================================================= -->
-  <div id="kexam-sec-questions" class="hidden">
-    <h3 style="margin-top:0;">문제은행 문항 등록 및 관리</h3>
-
-    <form onsubmit="saveExamQuestion(event)" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin-bottom:18px;">
-      <h4 id="ke-q-form-title" style="margin:0 0 10px 0;">새 시험 문항 등록</h4>
-      <div class="row" style="margin-bottom:8px;">
-        <div style="flex:2;">
-          <label>소속 지문 그룹 (선택)</label>
-          <select id="kq-group-id"><option value="">단독 문항 (그룹 없음)</option></select>
-        </div>
-        <div><label>그룹 내 순서</label><input type="number" id="kq-group-order" value="1" min="1" /></div>
-        <div>
-          <label>문항 유형</label>
-          <select id="kq-type" onchange="toggleQuestionTypeFields()">
-            <option value="MCQ">객관식 (MCQ)</option>
-            <option value="SHORT">주관식 (SHORT)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row" style="margin-bottom:8px;">
-        <div>
-          <label>난이도</label>
-          <select id="kq-level">
-            <option value="초급">초급</option>
-            <option value="중급">중급</option>
-            <option value="고급">고급</option>
-          </select>
-        </div>
-        <div>
-          <label>영역</label>
-          <select id="kq-category">
-            <option value="읽기">읽기</option>
-            <option value="듣기">듣기</option>
-            <option value="쓰기">쓰기</option>
-            <option value="어휘·문법">어휘·문법</option>
-          </select>
-        </div>
-        <div><label>기본 배점</label><input type="number" id="kq-points" value="10" min="1" required /></div>
-        <div><label>태그 (쉼표 구분)</label><input type="text" id="kq-tags" placeholder="예: TOPIK1, 인사" /></div>
-      </div>
-
-      <div style="margin-bottom:8px;">
-        <label>발문 (질문 내용)</label>
-        <input type="text" id="kq-prompt" placeholder="예: 다음을 듣고 알맞은 대답을 고르십시오." required />
-      </div>
-
-      <div style="margin-bottom:8px;">
-        <label>개별 지문 텍스트 (선택)</label>
-        <textarea id="kq-passage" rows="3" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;" placeholder="문항에 포함될 지문이 있으면 입력..."></textarea>
-      </div>
-
-      <div class="row" style="margin-bottom:10px;">
-        <div><label>이미지 URL (선택)</label><input type="text" id="kq-image" placeholder="https://..." /></div>
-        <div><label>오디오 파일 URL (선택)</label><input type="text" id="kq-audio" placeholder="https://..." /></div>
-        <div><label>TTS 읽어주기 텍스트 (선택)</label><input type="text" id="kq-tts" placeholder="한국어 음성 합성 텍스트" /></div>
-      </div>
-
-      <!-- 객관식 보기 영역 -->
-      <div id="kq-mcq-area" style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong style="font-size:13px;">객관식 보기 설정 (정답 라디오 버튼 선택)</strong>
-          <label style="display:inline-flex; align-items:center; gap:4px; font-size:12px;">
-            <input type="checkbox" id="kq-shuffle" checked style="width:auto;" /> 응시 시 보기 순서 섞기
-          </label>
-        </div>
-        <div id="kq-choices-list"></div>
-      </div>
-
-      <!-- 주관식 정답 영역 -->
-      <div id="kq-short-area" class="hidden" style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px; margin-bottom:10px;">
-        <label>주관식 인정 정답 (복수 정답 시 쉼표로 구분)</label>
-        <input type="text" id="kq-short-answers" placeholder="예: 안녕하세요, 안녕하십니까" />
-      </div>
-
-      <div style="margin-bottom:10px;">
-        <label>정답 해설 (선택)</label>
-        <input type="text" id="kq-explanation" placeholder="채점 후 학생에게 보여줄 해설..." />
-      </div>
-
-      <div style="display:flex; gap:8px;">
-        <button type="submit" id="kq-submit-btn">문항 저장하기</button>
-        <button type="button" id="kq-cancel-btn" class="secondary hidden" onclick="cancelEditExamQuestion()">수정 취소</button>
-      </div>
-    </form>
-
-    <div class="filter-bar">
-      <input type="text" id="kq-search-q" placeholder="발문 또는 지문 검색..." oninput="loadBankQuestionsList(1)" />
-      <select id="kq-filter-level" onchange="loadBankQuestionsList(1)">
-        <option value="">전체 난이도</option>
-        <option value="초급">초급</option>
-        <option value="중급">중급</option>
-        <option value="고급">고급</option>
-      </select>
-      <select id="kq-filter-category" onchange="loadBankQuestionsList(1)">
-        <option value="">전체 영역</option>
-        <option value="듣기">듣기</option>
-        <option value="읽기">읽기</option>
-        <option value="쓰기">쓰기</option>
-        <option value="어휘·문법">어휘·문법</option>
-      </select>
-    </div>
-    <div id="ke-bank-list"></div>
-    <div id="ke-bank-pagination" style="margin-top:10px;"></div>
-  </div>
-
-  <!-- =========================================================
-       [탭 5] [출제] 그룹 지문 관리 (선생님/관리자)
-       ========================================================= -->
-  <div id="kexam-sec-groups" class="hidden">
-    <h3 style="margin-top:0;">공통 지문·듣기 그룹 관리 (세트 문항)</h3>
-
-    <form onsubmit="saveExamGroup(event)" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin-bottom:18px;">
-      <h4 id="ke-grp-form-title" style="margin:0 0 10px 0;">새 공통 지문 그룹 등록</h4>
-      <div class="row" style="margin-bottom:8px;">
-        <div style="flex:2;"><label>관리용 그룹 제목</label><input type="text" id="kg-title" placeholder="예: [초급 듣기] 1~2번 대화 지문" required /></div>
-        <div>
-          <label>난이도</label>
-          <select id="kg-level">
-            <option value="초급">초급</option>
-            <option value="중급">중급</option>
-            <option value="고급">고급</option>
-          </select>
-        </div>
-        <div>
-          <label>영역</label>
-          <select id="kg-category">
-            <option value="듣기">듣기</option>
-            <option value="읽기">읽기</option>
-            <option value="쓰기">쓰기</option>
-          </select>
-        </div>
-        <div><label>랜덤 추출 수 (0=전체)</label><input type="number" id="kg-sample" value="0" min="0" /></div>
-      </div>
-
-      <div style="margin-bottom:8px;">
-        <label>공통 지시문</label>
-        <input type="text" id="kg-instruction" placeholder="예: 다음 대화를 듣고 물음에 답하십시오." required />
-      </div>
-
-      <div style="margin-bottom:8px;">
-        <label>공통 지문 내용 (선택)</label>
-        <textarea id="kg-passage" rows="3" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
-      </div>
-
-      <div class="row" style="margin-bottom:10px;">
-        <div><label>공통 이미지 URL (선택)</label><input type="text" id="kg-image" /></div>
-        <div><label>공통 오디오 URL (선택)</label><input type="text" id="kg-audio" /></div>
-        <div><label>공통 TTS 텍스트 (선택)</label><input type="text" id="kg-tts" /></div>
-        <div><label>태그 (쉼표 구분)</label><input type="text" id="kg-tags" /></div>
-      </div>
-
-      <div style="display:flex; gap:8px;">
-        <button type="submit" id="kg-submit-btn">그룹 저장하기</button>
-        <button type="button" id="kg-cancel-btn" class="secondary hidden" onclick="cancelEditExamGroup()">수정 취소</button>
-      </div>
-    </form>
-
+    <h4 style="margin:0 0 8px 0;">등록된 문제 그룹 목록</h4>
     <div id="ke-groups-list"></div>
   </div>
 </div>
 
-<!-- =========================================================
-     시험지 배포 링크 & QR코드 모달
-     ========================================================= -->
-<div id="ke-share-modal" class="hidden" style="position:fixed; inset:0; background:rgba(15,23,42,0.6); z-index:9999; display:flex; align-items:center; justify-content:center; padding:16px;" onclick="if(event.target===this) closeExamShareModal()">
-  <div class="card" style="max-width:420px; width:100%; text-align:center; position:relative; margin:0;">
-    <button type="button" class="secondary" style="position:absolute; top:12px; right:12px; padding:4px 10px;" onclick="closeExamShareModal()">✕</button>
-    <h3 id="ke-share-modal-title" style="margin-top:4px; font-size:16px; color:#0f172a;">시험지 배포 링크 & QR코드</h3>
-    <p style="font-size:12.5px; color:#64748b; margin-bottom:12px;">학생들에게 아래 QR코드를 보여주거나 응시 링크를 공유하세요.</p>
-
+<!-- 시험지 공유 링크 & QR코드 모달 -->
+<div id="ke-share-modal" class="hidden" style="position:fixed; inset:0; background:rgba(15,23,42,0.6); z-index:200; display:none; align-items:center; justify-content:center; padding:16px;">
+  <div style="background:#fff; border-radius:12px; max-width:420px; width:100%; padding:22px; text-align:center; box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);">
+    <h3 id="ke-share-modal-title" style="margin:0 0 6px 0; color:#0f172a;">시험지 배포 링크 & QR코드</h3>
+    <p style="font-size:12.5px; color:#64748b; margin:0 0 14px 0;">학생들에게 QR코드를 보여주거나 링크를 공유하면 바로 응시할 수 있습니다.</p>
     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; margin-bottom:12px;">
-      <img id="ke-share-qr-img" src="" alt="시험 응시 QR코드" style="width:210px; height:210px; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
-      <div style="margin-top:8px;">
-        <a id="ke-share-qr-download" href="" download="exam_qr.png" target="_blank" style="font-size:12px; color:#2563eb; font-weight:700; text-decoration:none;">
-          ⬇ QR코드 이미지 새 창으로 열기 / 저장
-        </a>
-      </div>
+      <img id="ke-share-qr-img" src="" alt="시험 QR코드" style="width:200px; height:200px; margin:0 auto; display:block;" />
+      <a id="ke-share-qr-download" href="#" download="korean-exam-qr.png" style="display:inline-block; margin-top:8px; font-size:12px; color:#2563eb; font-weight:700; text-decoration:underline;">QR코드 이미지(PNG) 저장</a>
     </div>
-
-    <div style="display:flex; gap:6px; margin-bottom:12px;">
+    <div style="display:flex; gap:6px; margin-bottom:14px;">
       <input type="text" id="ke-share-url-input" readonly style="font-size:12px; background:#f1f5f9;" />
-      <button type="button" style="white-space:nowrap; background:#2563eb;" onclick="copyExamShareUrl()">링크 복사</button>
+      <button type="button" style="flex-shrink:0; padding:8px 12px;" onclick="copyExamShareUrl()">링크 복사</button>
     </div>
-
     <button type="button" class="secondary" style="width:100%;" onclick="closeExamShareModal()">닫기</button>
   </div>
 </div>

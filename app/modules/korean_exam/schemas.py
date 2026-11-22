@@ -19,14 +19,14 @@ class QuestionGroupCreate(BaseModel):
     tts_text: str = ""
     level: str = "초급"
     category: str = "읽기"
-    sample_count: int = Field(0, ge=0, description="0이면 그룹 전체 출제, N이면 N개만 랜덤 추출")
+    sample_count: int = Field(0, ge=0)
     tags: List[str] = Field(default_factory=list)
 
 
 class ExamQuestionCreate(BaseModel):
     group_id: Optional[str] = None
     order_in_group: int = 1
-    question_type: str = Field("MCQ", description="MCQ | SHORT")
+    question_type: str = Field("MCQ")
     level: str = "초급"
     category: str = "읽기"
     points: int = Field(10, ge=1)
@@ -45,7 +45,7 @@ class ExamQuestionCreate(BaseModel):
 
 class ExamPaperItemSpec(BaseModel):
     question_id: str
-    points: int = Field(10, ge=1, description="해당 시험지에서의 문항별 개별 배점")
+    points: int = Field(10, ge=1)
     order_no: int = Field(1, ge=1)
 
 
@@ -70,15 +70,15 @@ class ExamGenerateRequest(BaseModel):
 
 
 class ExamRetryRequest(BaseModel):
-    attempt_id: str = Field(..., description="기준이 되는 이전 시험 기록 ID")
-    retry_mode: str = Field("RETRY_WRONG", description="RETRY_ALL | RETRY_WRONG")
+    attempt_id: str
+    retry_mode: str = Field("RETRY_WRONG")
     time_limit_seconds: Optional[int] = Field(None, ge=10, le=7200)
 
 
 class UserSubmittedAnswer(BaseModel):
     question_id: str
     display_no: int
-    points: Optional[int] = None           # 시험지 지정 배점이 있을 경우 전달
+    points: Optional[int] = None
     selected_choice_id: Optional[str] = None
     short_answer_text: Optional[str] = None
 
@@ -90,15 +90,3 @@ class ExamSubmitRequest(BaseModel):
     series_id: Optional[str] = None
     attempt_mode: str = "NEW"
     answers: List[UserSubmittedAnswer]
-
-class ClaimGuestAttemptRequest(BaseModel):
-    exam_title: str
-    elapsed_seconds: int = 0
-    time_limit_seconds: int = 600
-    total_questions: int
-    correct_count: int
-    wrong_count: int
-    earned_points: int
-    total_points: int
-    score: int
-    detail_results: List[dict]
