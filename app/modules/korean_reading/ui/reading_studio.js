@@ -4,33 +4,12 @@ var krSpeechRecognition = null, krFinalTranscript = "", krInterimTranscript = ""
 var krIsRecording = false, krSpeechStarted = false, krActualStartMs = 0, krLastSpeechMs = 0;
 
 async function loadKreadingPassages() {
-  const params = new URLSearchParams();
-  const level = document.getElementById("kr-filter-level")?.value || "";
-  const tag = document.getElementById("kr-filter-tag")?.value.trim() || "";
-  const q = document.getElementById("kr-filter-q")?.value.trim() || "";
-  if (level) params.append("level", level);
-  if (tag) params.append("tag", tag);
-  if (q) params.append("q", q);
-
-  const res = await fetch(`/api/v1/modules/korean_reading/passages?${params}`, { headers: getAuthHeaders(false) });
+  const res = await fetch("/api/v1/modules/korean_reading/passages", { headers: getAuthHeaders(false) });
   const listEl = document.getElementById("kr-passage-list");
   if (!res.ok) return (listEl.innerHTML = `<p style="color:#b91c1c;">지문 목록 로드 실패</p>`);
 
   kreadingPassagesCache = await res.json();
-  if (!kreadingPassagesCache.length) {
-    return (listEl.innerHTML = `<p style="color:#64748b; text-align:center; padding:16px;">등록된 읽기 지문이 없습니다.</p>`);
-  }
-
-  listEl.innerHTML = kreadingPassagesCache.map(p => `
-    <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <div>
-        <span class="pos-badge">${p.level}</span>
-        <strong style="font-size:15px; margin-left:6px;">${p.title}</strong>
-        <div style="font-size:12.5px; color:#64748b; margin-top:4px;">${p.char_count}음절 (${p.word_count}어절) · ${p.author_name || "선생님"}</div>
-      </div>
-      <button type="button" style="background:#2563eb;" onclick="selectReadingPassageForTest('${p.id}')">이 지문 읽기</button>
-    </div>
-  `).join("");
+  renderStudyPassagesPaged(1);
 }
 
 function selectReadingPassageForTest(passageId) {
@@ -179,6 +158,7 @@ async function stopAndSubmitReading() {
 }
 
 function cleanupReadingAudioEngine() {
+  if (typeof stopReadingTts === "function") stopReadingTts();
   krIsRecording = false;
   if (krVadAnimId) { cancelAnimationFrame(krVadAnimId); krVadAnimId = null; }
   if (krSpeechRecognition) { try { krSpeechRecognition.stop(); } catch {} krSpeechRecognition = null; }

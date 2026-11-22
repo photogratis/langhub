@@ -19,7 +19,6 @@ def require_teacher_or_admin(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
-# 1. 지문 목록 조회 (누구나 조회 가능)
 @router.get("/passages")
 def list_reading_passages(
     level: Optional[str] = Query(None),
@@ -32,14 +31,21 @@ def list_reading_passages(
         query = query.eq("level", level)
     if tag and tag.strip():
         query = query.contains("tags", [tag.strip()])
-    if q and q.strip():
-        query = query.ilike("title", f"%{q.strip()}%")
 
     res = query.execute()
-    return res.data or []
+    items = res.data or []
+
+    if q and q.strip():
+        kw = q.strip().lower()
+        items = [
+            p for p in items
+            if kw in (p.get("title") or "").lower()
+            or kw in (p.get("content") or "").lower()
+            or any(kw in t.lower() for t in (p.get("tags") or []))
+        ]
+    return items
 
 
-# 2. 지문 등록 (관리자 및 선생님 전용)
 @router.post("/passages")
 def create_reading_passage(
     req: ReadingPassageCreate,
@@ -64,7 +70,37 @@ def create_reading_passage(
     return res.data[0]
 
 
-# 3. 지문 삭제 (관리자 또는 본인 작성 선생님)
+@router.put("/passages/{passage_id}")
+def update_reading_passage(
+    passage_id: str,
+    req: ReadingPassageCreate,
+    staff: dict = Depends(require_teacher_or_admin),
+):
+    existing = supabase.table("reading_passages").select("*").eq("id", passage_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
+
+    row = existing.data[0]
+    if staff.get("grade") != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
+        raise HTTPException(status_code=403, detail="본인이 작성한 지문만 수정할 수 있습니다.")
+
+    char_count, word_count = compute_passage_stats(req.content)
+    tags = [t.strip() for t in req.tags if t.strip()]
+
+    payload = {
+        "title": req.title.strip(),
+        "content": req.content.strip(),
+        "level": req.level.strip() or "초급",
+        "tags": tags,
+        "char_count": char_count,
+        "word_count": word_count,
+    }
+    res = supabase.table("reading_passages").update(payload).eq("id", passage_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="지문 수정에 실패했습니다.")
+    return res.data[0]
+
+
 @router.delete("/passages/{passage_id}")
 def delete_reading_passage(
     passage_id: str,
@@ -82,7 +118,6 @@ def delete_reading_passage(
     return {"message": "지문이 삭제되었습니다."}
 
 
-# 4. 읽기 녹음 제출 및 정확도·속도(CPM/WPM) 평가 저장
 @router.post("/submit")
 async def submit_reading_attempt(
     passage_id: str = Form(...),
@@ -97,7 +132,6 @@ async def submit_reading_attempt(
         raise HTTPException(status_code=404, detail="대상 지문을 찾을 수 없습니다.")
     passage = p_res.data[0]
 
-    # 오디오 파일 Supabase Storage 업로드
     ext = os.path.splitext(audio_file.filename or "")[1].lower()
     if ext not in {".webm", ".mp4", ".m4a", ".ogg", ".wav", ".mp3"}:
         ext = ".webm"
@@ -117,7 +151,6 @@ async def submit_reading_attempt(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"녹음 파일 저장 실패: {str(e)}")
 
-    # 정확도 및 속도(분당 음절 수 CPM, 분당 어절 수 WPM) 산출
     safe_duration = max(0.3, round(float(duration_seconds), 2))
     accuracy, diff_tokens = evaluate_reading_accuracy(passage["content"], recognized_text)
 
@@ -125,8 +158,6 @@ async def submit_reading_attempt(
     word_count = int(passage.get("word_count") or 0)
     cpm = round((char_count / safe_duration) * 60)
     wpm = round((word_count / safe_duration) * 60)
-
-    # 비회원은 공개 설정 불가 (개인 테스트 결과만 반환)
     effective_public = bool(is_public) if user else False
 
     payload = {
@@ -153,11 +184,10 @@ async def submit_reading_attempt(
     return saved
 
 
-# 5. 특정 지문의 공개된 다른 사용자 기록 조회 (is_public = True 만 노출)
 @router.get("/passages/{passage_id}/public-attempts")
 def list_public_attempts_for_passage(
     passage_id: str,
-    sort_by: str = Query("accuracy", description="accuracy | speed | recent"),
+    sort_by: str = Query("accuracy"),
     user: Optional[dict] = Depends(require_module_access("korean_reading")),
 ):
     query = (
@@ -177,7 +207,6 @@ def list_public_attempts_for_passage(
     return res.data or []
 
 
-# 6. 내 읽기 기록 조회
 @router.get("/my-attempts")
 def list_my_reading_attempts(current_user: dict = Depends(get_current_user)):
     res = (
@@ -191,7 +220,6 @@ def list_my_reading_attempts(current_user: dict = Depends(get_current_user)):
     return res.data or []
 
 
-# 7. 내 기록 공개/비공개 전환 토글
 @router.patch("/attempts/{attempt_id}/visibility")
 def update_attempt_visibility(
     attempt_id: str,

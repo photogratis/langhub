@@ -21,10 +21,11 @@ function loadReadingSubScript(src) {
 async function initKoreanReadingModule() {
   if (!krSubScriptsLoaded) {
     await Promise.all([
-      loadReadingSubScript("/static/modules/korean_reading/reading_studio.js?v=1"),
-      loadReadingSubScript("/static/modules/korean_reading/reading_social.js?v=1"),
-      loadReadingSubScript("/static/modules/korean_reading/reading_admin.js?v=1"),
-      loadReadingSubScript("/static/modules/korean_reading/reading_tts.js?v=1")
+      loadReadingSubScript("/static/modules/korean_reading/reading_tts.js?v=2"),
+      loadReadingSubScript("/static/modules/korean_reading/reading_passage_browser.js?v=2"),
+      loadReadingSubScript("/static/modules/korean_reading/reading_studio.js?v=2"),
+      loadReadingSubScript("/static/modules/korean_reading/reading_social.js?v=2"),
+      loadReadingSubScript("/static/modules/korean_reading/reading_admin.js?v=2")
     ]);
     krSubScriptsLoaded = true;
   }
@@ -40,8 +41,8 @@ async function initKoreanReadingModule() {
 }
 
 function switchKreadingTab(tabName) {
-  if (typeof stopReadingTts === "function") stopReadingTts();
   if (typeof clearMsg === "function") clearMsg();
+  if (typeof stopReadingTts === "function") stopReadingTts();
   if (typeof cleanupReadingAudioEngine === "function") cleanupReadingAudioEngine();
 
   ["test", "public", "my", "admin"].forEach(t => {
