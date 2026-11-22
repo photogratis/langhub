@@ -156,9 +156,10 @@ async function startReadingRecording() {
   try {
     krMediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
       }
     });
   } catch (err) {
@@ -174,7 +175,7 @@ async function startReadingRecording() {
   krLastSpeechMs = 0;
 
   // 1. MediaRecorder 초기화 (모바일 Safari/Chrome 호환 MIME 자동 선택)
-  const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""];
+  const mimeCandidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
   let chosenMime = "";
   for (const m of mimeCandidates) {
     if (!m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m))) {
@@ -324,11 +325,11 @@ async function stopAndSubmitReading() {
   statusEl.textContent = "⏳ 녹음 파일 저장 및 발음 정확도 분석 중...";
   statusEl.style.color = "#38bdf8";
 
-  // MediaRecorder 종료 후 Blob 생성 대기
+// stopAndSubmitReading() 내부의 audioBlob 생성 및 FormData 전송 부분
   const audioBlob = await new Promise(resolve => {
-    const mimeType = (krMediaRecorder && krMediaRecorder.mimeType) || "audio/webm";
+    const actualMime = (krMediaRecorder && krMediaRecorder.mimeType) || chosenMime || "audio/webm";
     krMediaRecorder.onstop = () => {
-      resolve(new Blob(krRecordedChunks, { type: mimeType }));
+      resolve(new Blob(krRecordedChunks, { type: actualMime }));
     };
     krMediaRecorder.stop();
   });
@@ -339,7 +340,13 @@ async function stopAndSubmitReading() {
   document.getElementById("kr-btn-stop").classList.add("hidden");
   document.getElementById("kr-btn-cancel").classList.add("hidden");
 
-  const ext = audioBlob.type.includes("mp4") ? ".mp4" : ".webm";
+  let ext = ".webm";
+  if (audioBlob.type.includes("mp4") || audioBlob.type.includes("aac") || audioBlob.type.includes("m4a")) {
+    ext = ".mp4";
+  } else if (audioBlob.type.includes("ogg")) {
+    ext = ".ogg";
+  }
+
   const formData = new FormData();
   formData.append("passage_id", selectedReadingPassage.id);
   formData.append("duration_seconds", pureDurationSec.toFixed(2));
