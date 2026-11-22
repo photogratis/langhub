@@ -1,5 +1,5 @@
 /* =========================================================
-   LangHuv 전역 스타일시트 (PC + 모바일 완전 반응형)
+   LangHuv 전역 스타일시트 (PC + 모바일 우측 슬라이딩 드로어 반응형)
    ========================================================= */
 * {
   box-sizing: border-box;
@@ -27,7 +27,6 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
   gap: 10px;
   position: sticky;
   top: 0;
@@ -39,7 +38,6 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .brand {
@@ -70,13 +68,150 @@ header {
 .menu-btn.primary-nav { background: #0284c7; }
 .menu-btn.primary-nav:hover { background: #0369a1; }
 
-.menu-badge {
-  font-size: 11px;
-  background: #0284c7;
-  padding: 2px 7px;
-  border-radius: 10px;
-  color: #fff;
+/* PC / 모바일 전용 표시 제어 */
+.mobile-only { display: none !important; }
+.desktop-only { display: flex; }
+
+/* 모바일 우측 상단 삼선(햄버거) 버튼 */
+.hamburger-btn {
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 9px;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+.hamburger-btn:hover, .hamburger-btn:active {
+  background: #475569;
+}
+.hamburger-btn span {
+  display: block;
+  width: 22px;
+  height: 2.5px;
+  background: #f8fafc;
+  border-radius: 2px;
+}
+
+/* 모바일 우측 슬라이딩 드로어 & 배경 오버레이 */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 900;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.drawer-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 280px;
+  max-width: 82vw;
+  background: #1e293b;
+  color: #f8fafc;
+  z-index: 1000;
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.3);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid #334155;
+}
+
+.drawer-close-btn {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  background: #334155;
+  color: #f8fafc;
+  border-radius: 8px;
+  font-size: 16px;
   font-weight: 700;
+}
+.drawer-close-btn:hover { background: #475569; }
+
+.drawer-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.drawer-user-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 6px;
+}
+.drawer-user-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.drawer-user-grade {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #0284c7;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.drawer-item-btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 12px 14px;
+  min-height: 46px;
+  background: #334155;
+  color: #f8fafc;
+  border-radius: 9px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.drawer-item-btn:hover { background: #475569; }
+.drawer-item-btn.primary { background: #0284c7; }
+.drawer-item-btn.primary:hover { background: #0369a1; }
+.drawer-item-btn.danger-outline {
+  margin-top: auto;
+  background: rgba(220, 38, 38, 0.16);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+}
+.drawer-item-btn.danger-outline:hover {
+  background: #dc2626;
+  color: #fff;
 }
 
 /* 메인 컨테이너 & 카드 */
@@ -163,7 +298,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   transition: background 0.15s, transform 0.08s;
 }
 button:hover { background: #1d4ed8; }
@@ -219,7 +354,7 @@ button.danger:hover { background: #b91c1c; }
   font-weight: 700;
 }
 
-/* 테이블 (모바일 가로 스크롤 대응) */
+/* 테이블 */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -274,7 +409,7 @@ th {
   margin-bottom: 14px;
 }
 
-/* 자동완성 검색 피커 전용 스타일 */
+/* 자동완성 검색 피커 */
 .picker-box { position: relative; }
 .picker-dropdown {
   position: absolute;
@@ -322,7 +457,7 @@ th {
 }
 .chip-clear:hover { background: #ddd6fe; }
 
-/* 공통 페이지네이션 바 스타일 */
+/* 공통 페이지네이션 바 */
 .pagination-bar {
   display: flex;
   justify-content: center;
@@ -382,7 +517,6 @@ th {
   border-color: #7c3aed;
 }
 
-/* 오디오 플레이어 모바일 폭 맞춤 */
 audio {
   max-width: 100%;
   border-radius: 8px;
@@ -392,18 +526,20 @@ audio {
    모바일 & 태블릿 반응형 최적화 (768px 이하)
    ========================================================= */
 @media (max-width: 768px) {
+  .desktop-only { display: none !important; }
+  .mobile-only { display: flex !important; }
+
   header {
     padding: 10px 14px;
-    gap: 8px;
+    flex-wrap: nowrap;
   }
 
-  .nav-left, .nav-right {
-    width: 100%;
-    justify-content: space-between;
+  .nav-left {
+    width: auto;
   }
 
   .brand {
-    font-size: 18px;
+    font-size: 19px;
   }
 
   .container {
@@ -421,7 +557,6 @@ audio {
     font-size: 18px;
   }
 
-  /* 모바일 Safari/Android 터치 시 강제 줌인 방지 (16px 필수) */
   input, select, textarea {
     font-size: 16px !important;
     padding: 10px 11px;
@@ -451,19 +586,17 @@ audio {
     flex: none !important;
   }
 
-  /* 각 모듈 내부 인라인 다단 그리드(2열, 3열 등)를 모바일에서 1열로 자동 정렬 */
-  #app-mount-point [style*="grid-template-columns"] {
+  #module-mount-point [style*="grid-template-columns"] {
     grid-template-columns: 1fr !important;
   }
 
-  /* 인라인 max-width가 지정된 필터 입력창을 모바일에서는 가로 100%로 확장 */
-  #app-mount-point select[style*="max-width"],
-  #app-mount-point input[style*="max-width"] {
+  #view-tools input[style*="max-width"],
+  #module-mount-point select[style*="max-width"],
+  #module-mount-point input[style*="max-width"] {
     max-width: 100% !important;
     width: 100% !important;
   }
 
-  /* 넓은 테이블이 화면을 넘치지 않도록 블록 스크롤 허용 */
   table {
     display: block;
     width: 100%;
@@ -478,10 +611,6 @@ audio {
 
   .tool-card {
     padding: 15px;
-  }
-
-  .admin-subnav {
-    gap: 6px;
   }
 
   .subtab-btn {
