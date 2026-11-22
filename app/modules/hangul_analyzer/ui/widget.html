@@ -1,0 +1,54 @@
+<div class="card">
+  <h2 style="margin-top:0;">한글 자소 분석기 & 단어·조사·문법 풀이</h2>
+  <p style="font-size:13px; color:#64748b; margin-top:-6px;">
+    한글 문장을 입력하면 글자 수, 초성/중성/종성(받침) 개수를 실시간으로 계산하고, 단어의 인도네시아어 뜻과 조사·문법을 풀이합니다.
+  </p>
+
+  <div style="margin-bottom:14px;">
+    <textarea id="analyzer-input" rows="4" style="width:100%; padding:12px; border:1px solid #cbd5e1; border-radius:8px; font-size:15px; line-height:1.5;" placeholder="예: 밥을 먹어서 기분이 좋아요. 몫까지 다 했어요." oninput="onTypingAnalyzer()"></textarea>
+  </div>
+
+  <div class="row" style="margin-bottom:16px;">
+    <div class="word-card" style="margin-top:0; text-align:center;">
+      <div style="font-size:12px; color:#64748b;">전체 글자 수 (공백 포함)</div>
+      <strong id="stat-with-space" style="font-size:22px; color:#0f172a;">0자</strong>
+    </div>
+    <div class="word-card" style="margin-top:0; text-align:center;">
+      <div style="font-size:12px; color:#64748b;">글자 수 (공백 제외)</div>
+      <strong id="stat-without-space" style="font-size:22px; color:#2563eb;">0자</strong>
+    </div>
+    <div class="word-card" style="margin-top:0; text-align:center;">
+      <div style="font-size:12px; color:#64748b;">완성형 한글 음절 수</div>
+      <strong id="stat-syllable" style="font-size:22px; color:#7c3aed;">0자</strong>
+    </div>
+  </div>
+
+  <div class="row" style="align-items:stretch; margin-bottom:18px;">
+    <div class="word-card" style="margin-top:0;">
+      <h4 style="margin:0 0 8px 0; color:#1e40af;">초성 개수</h4>
+      <div id="stat-chosung" style="font-size:13px; color:#475569;">입력 대기 중...</div>
+    </div>
+    <div class="word-card" style="margin-top:0;">
+      <h4 style="margin:0 0 8px 0; color:#047857;">중성 (모음) 개수</h4>
+      <div id="stat-jungsung" style="font-size:13px; color:#475569;">입력 대기 중...</div>
+    </div>
+    <div class="word-card" style="margin-top:0;">
+      <h4 style="margin:0 0 8px 0; color:#b45309;">종성 (받침) 개수</h4>
+      <div id="stat-jongsung" style="font-size:13px; color:#475569;">입력 대기 중...</div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <h3 style="margin-bottom:8px; color:#5b21b6;">탐지된 한국어 문법 (문법사전 DB 연동)</h3>
+    <div id="analyzer-grammars">
+      <p style="color:#64748b; font-size:13px;">문장을 입력하면 문법 DB와 대조하여 표시합니다.</p>
+    </div>
+  </div>
+
+  <div>
+    <h3 style="margin-bottom:8px; color:#0f172a;">어절별 인도네시아어 뜻 & 조사 풀이</h3>
+    <div id="analyzer-words">
+      <p style="color:#64748b; font-size:13px;">문장을 입력하면 한-인사전과 조사를 분석해 풀이합니다.</p>
+    </div>
+  </div>
+</div>

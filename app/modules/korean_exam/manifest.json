@@ -1,0 +1,14 @@
+{
+  "module_id": "korean_exam",
+  "name": "한국어 시험 (모의고사)",
+  "description": "그룹 지문 샘플링, 이미지·음성 듣기평가(자동/순차 재생 및 TTS), 객관식·주관식 혼합 출제 및 오답 이력 관리",
+  "version": "1.0.0",
+  "type": "feature",
+  "dependencies": [],
+  "ui": {
+    "asset_module": "korean_exam",
+    "html": "widget.html",
+    "js": "widget.js",
+    "init_fn": "initKoreanExamModule"
+  }
+}
