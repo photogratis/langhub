@@ -90,3 +90,16 @@ class ExamSubmitRequest(BaseModel):
     series_id: Optional[str] = None
     attempt_mode: str = "NEW"
     answers: List[UserSubmittedAnswer]
+
+
+class ClaimGuestAttemptRequest(BaseModel):
+    exam_title: str
+    elapsed_seconds: int = 0
+    time_limit_seconds: int = 600
+    total_questions: int
+    correct_count: int
+    wrong_count: int
+    earned_points: int
+    total_points: int
+    score: int
+    detail_results: List[dict]
