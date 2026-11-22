@@ -1,0 +1,152 @@
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+    <div>
+      <h2 style="margin:0;">한국어 정확·빠른 읽기 테스트</h2>
+      <p style="margin:4px 0 0 0; font-size:13px; color:#64748b;">
+        목소리가 시작되는 순간부터 끝나는 순간까지 정밀 측정하여 정확도와 읽기 속도(CPM)를 평가합니다.
+      </p>
+    </div>
+  </div>
+
+  <!-- 상단 탭 메뉴 -->
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+    <button type="button" id="kr-tab-test" onclick="switchKreadingTab('test')">🎙️ 읽기 테스트 응시</button>
+    <button type="button" id="kr-tab-public" class="secondary" onclick="switchKreadingTab('public')">🎧 공개 기록 듣기 · 랭킹</button>
+    <button type="button" id="kr-tab-my" class="secondary" onclick="switchKreadingTab('my')">📊 내 읽기 기록</button>
+    <button type="button" id="kr-tab-admin" class="secondary kreading-staff-only hidden" onclick="switchKreadingTab('admin')">✍️ 지문 등록·관리</button>
+  </div>
+
+  <!-- =========================================================
+       탭 1: 읽기 테스트 응시
+       ========================================================= -->
+  <div id="kr-view-test">
+    <!-- 지문 선택 필터 -->
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+      <select id="kr-filter-level" style="max-width:140px;" onchange="loadKreadingPassages()">
+        <option value="">전체 난이도</option>
+        <option value="초급">초급</option>
+        <option value="중급">중급</option>
+        <option value="고급">고급</option>
+      </select>
+      <input type="text" id="kr-filter-tag" placeholder="태그 검색 (예: 뉴스, 일상)" style="max-width:180px;" onkeyup="if(event.key==='Enter') loadKreadingPassages()" />
+      <input type="text" id="kr-filter-q" placeholder="지문 제목 검색..." style="flex:1; min-width:160px;" onkeyup="if(event.key==='Enter') loadKreadingPassages()" />
+      <button type="button" class="secondary" onclick="loadKreadingPassages()">검색</button>
+    </div>
+
+    <!-- 지문 목록 카드 -->
+    <div id="kr-passage-list" style="margin-bottom:16px;"></div>
+
+    <!-- 선택된 지문 녹음 & 측정 스튜디오 -->
+    <div id="kr-studio-box" class="hidden" style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:10px; padding:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <div>
+          <span class="pos-badge" id="kr-active-level">초급</span>
+          <strong id="kr-active-title" style="font-size:17px; color:#0f172a; margin-left:6px;"></strong>
+        </div>
+        <div style="font-size:12.5px; color:#475569;" id="kr-active-meta"></div>
+      </div>
+
+      <!-- 읽기 본문 박스 -->
+      <div id="kr-active-content" style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:16px; font-size:18px; line-height:1.85; color:#0f172a; font-weight:600; margin-bottom:14px; white-space:pre-line;"></div>
+
+      <!-- 실시간 음성 감지 상태 & 타이머 표시기 -->
+      <div style="background:#0f172a; color:#fff; border-radius:8px; padding:14px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div style="font-size:12px; color:#94a3b8;">측정 상태</div>
+            <div id="kr-vad-status" style="font-size:15px; font-weight:800; color:#38bdf8;">대기 중 — 아래 [녹음 시작]을 누른 뒤 읽기 시작하세요</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:12px; color:#94a3b8;">실제 발화 시간</div>
+            <div id="kr-live-timer" style="font-size:28px; font-weight:900; color:#fbbf24; font-variant-numeric:tabular-nums;">0.00초</div>
+          </div>
+        </div>
+
+        <!-- 실시간 마이크 입력 볼륨 게이지 -->
+        <div style="margin-top:10px; background:#1e293b; height:8px; border-radius:4px; overflow:hidden;">
+          <div id="kr-volume-bar" style="width:0%; height:100%; background:#22c55e; transition:width 0.06s;"></div>
+        </div>
+        <div id="kr-live-transcript" style="margin-top:8px; font-size:13px; color:#cbd5e1; min-height:18px;"></div>
+      </div>
+
+      <!-- 녹음 컨트롤 버튼 & 공개 여부 선택 -->
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; margin:0;">
+          <input type="checkbox" id="kr-submit-public" style="width:auto;" />
+          <span>내 기록을 <b>공개</b>하여 다른 학습자도 듣고 참고할 수 있게 하기</span>
+        </label>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="kr-btn-start" style="background:#16a34a; padding:11px 18px; font-size:14px;" onclick="startReadingRecording()">
+            🎙️ 녹음 시작
+          </button>
+          <button type="button" id="kr-btn-stop" class="hidden" style="background:#dc2626; padding:11px 18px; font-size:14px;" onclick="stopAndSubmitReading()">
+            ⏹️ 읽기 완료 · 채점하기
+          </button>
+          <button type="button" id="kr-btn-cancel" class="secondary hidden" onclick="cancelReadingRecording()">
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 채점 결과 리포트 박스 -->
+    <div id="kr-result-box" class="hidden" style="margin-top:16px; background:#f0fdf4; border:2px solid #86efac; border-radius:10px; padding:16px;"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 2: 공개 기록 듣기 & 랭킹
+       ========================================================= -->
+  <div id="kr-view-public" class="hidden">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+      <select id="kr-public-passage-select" style="flex:1; min-width:220px;" onchange="loadPublicAttemptsForSelectedPassage()"></select>
+      <select id="kr-public-sort" style="max-width:160px;" onchange="loadPublicAttemptsForSelectedPassage()">
+        <option value="accuracy">정확도 높은 순</option>
+        <option value="speed">읽기 빠른 순 (CPM)</option>
+        <option value="recent">최신 등록 순</option>
+      </select>
+    </div>
+    <div id="kr-public-attempts-list"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 3: 내 읽기 기록
+       ========================================================= -->
+  <div id="kr-view-my" class="hidden">
+    <div id="kr-my-attempts-list"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 4: 지문 등록 · 관리 (관리자 & 선생님 전용)
+       ========================================================= -->
+  <div id="kr-view-admin" class="hidden">
+    <form onsubmit="handleCreateReadingPassage(event)" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; margin-bottom:16px;">
+      <h3 style="margin:0 0 10px 0; font-size:15px;">새 읽기 지문 등록</h3>
+      <div style="display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; margin-bottom:10px;">
+        <div>
+          <label>지문 제목</label>
+          <input type="text" id="kr-new-title" placeholder="예: 서울의 사계절과 날씨" required />
+        </div>
+        <div>
+          <label>난이도</label>
+          <select id="kr-new-level">
+            <option value="초급">초급</option>
+            <option value="중급">중급</option>
+            <option value="고급">고급</option>
+          </select>
+        </div>
+        <div>
+          <label>태그 (쉼표 구분)</label>
+          <input type="text" id="kr-new-tags" placeholder="예: 일상, 날씨, 회화" />
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label>지문 내용 (학습자가 소리 내어 읽을 한국어 문장)</label>
+        <textarea id="kr-new-content" rows="4" placeholder="학습자가 정확하고 빠르게 읽을 한국어 지문을 입력하세요..." required></textarea>
+      </div>
+      <button type="submit" style="background:#2563eb;">지문 등록하기</button>
+    </form>
+
+    <div id="kr-admin-passage-list"></div>
+  </div>
+</div>

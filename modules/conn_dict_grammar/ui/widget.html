@@ -1,0 +1,77 @@
+<div class="card">
+  <h2 id="corpus-module-title" style="margin-top:0;">단어-문법 말뭉치 연결기</h2>
+  <p style="font-size:13px; color:#64748b; margin-top:-6px;">
+    한-인사전의 단어와 한국어 문법 패턴을 연결하여 실제 활용 예문(말뭉치)을 구축하고 검색합니다.
+  </p>
+
+  <!-- 말뭉치 검색 폼 -->
+  <form onsubmit="searchStandaloneCorpus(event, 1)" class="row" style="margin-bottom:16px;">
+    <div style="flex:3;">
+      <label>말뭉치 검색 (단어, 문법 패턴, 한국어/인니어 예문, 메모)</label>
+      <input type="text" id="c-search-q" placeholder="검색어를 입력하세요 (비워두면 전체 말뭉치 표시)..." />
+    </div>
+    <div style="flex:0;">
+      <button type="submit">검색</button>
+    </div>
+  </form>
+
+  <!-- 관리자 전용 말뭉치 생성/수정 폼 -->
+  <div id="corpus-admin-box" class="hidden" style="background:#f5f3ff; border:1px solid #ddd6fe; padding:14px; border-radius:8px; margin-bottom:16px;">
+    <h4 id="c-form-title" style="margin:0 0 10px 0; color:#5b21b6;">[관리자] 새 말뭉치 연결 및 저장</h4>
+    <form id="c-corpus-form" onsubmit="submitStandaloneCorpus(event)">
+      <div class="row" style="margin-bottom:8px;">
+        <div class="picker-box">
+          <label>① 한-인사전 단어 검색</label>
+          <input type="hidden" id="c-word-id" />
+          <div id="c-word-chip" class="selected-chip hidden">
+            <span id="c-word-text"></span>
+            <button type="button" class="chip-clear" onclick="clearStandaloneWord()">✕</button>
+          </div>
+          <input type="text" id="c-word-input" placeholder="한국어 또는 인니어 뜻 입력..." autocomplete="off" oninput="searchStandaloneWord(this.value)" onfocus="searchStandaloneWord(this.value)" />
+          <div id="c-word-dropdown" class="picker-dropdown hidden"></div>
+        </div>
+
+        <div class="picker-box">
+          <label>② 한국어 문법 검색</label>
+          <input type="hidden" id="c-grammar-id" />
+          <div id="c-grammar-chip" class="selected-chip hidden">
+            <span id="c-grammar-text"></span>
+            <button type="button" class="chip-clear" onclick="clearStandaloneGrammar()">✕</button>
+          </div>
+          <input type="text" id="c-grammar-input" placeholder="문법 패턴 또는 의미 입력..." autocomplete="off" oninput="searchStandaloneGrammar(this.value)" onfocus="searchStandaloneGrammar(this.value)" />
+          <div id="c-grammar-dropdown" class="picker-dropdown hidden"></div>
+        </div>
+
+        <div>
+          <label>③ 활용 메모 (선택)</label>
+          <input type="text" id="c-note" placeholder="예: 먹다 + -어서 → 먹어서" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:8px;">
+        <div><label>말뭉치 문장 (한국어)</label><input type="text" id="c-sent-ko" required /></div>
+        <div><label>말뭉치 번역 (인도네시아어)</label><input type="text" id="c-sent-id" required /></div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button type="submit" id="c-submit-btn" style="background:#7c3aed;">말뭉치 저장</button>
+        <button type="button" id="c-cancel-btn" class="secondary hidden" onclick="cancelEditStandaloneCorpus()">수정 취소</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 말뭉치 요약 및 페이지당 개수 선택 -->
+  <div class="list-summary">
+    <span id="c-total-info">전체 0개 말뭉치</span>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <span>페이지당</span>
+      <select id="c-page-size" style="width:auto; padding:4px 8px;" onchange="searchStandaloneCorpus(null, 1)">
+        <option value="15" selected>15개</option>
+        <option value="30">30개</option>
+        <option value="50">50개</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="standalone-corpus-list"></div>
+  <div id="c-pagination"></div>
+</div>
