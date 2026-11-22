@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1e293b" />
   <title>LangHuv - 언어 교육 도구 플랫폼</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=21" />
+  <link rel="stylesheet" href="/static/css/style.css?v=22" />
 </head>
 <body>
 
@@ -40,138 +40,10 @@
 
 <div class="container">
   <div id="message" class="msg"></div>
-
-  <!-- 1. 도구 목록 디렉토리 뷰 -->
-  <div id="view-tools" class="card">
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
-      <div>
-        <h2 style="margin:0;">언어 교육 도구 목록</h2>
-        <p style="margin:4px 0 0 0; font-size:13px; color:#64748b;">원하시는 학습 도구를 선택하여 바로 이용해 보세요.</p>
-      </div>
-      <input type="text" id="tools-search-input" placeholder="도구 이름 또는 설명 검색..." style="max-width:260px;" oninput="renderToolsDirectory()" />
-    </div>
-    <div id="tools-grid-container" class="tools-grid"></div>
-  </div>
-
-  <!-- 2. 개별 도구 위젯 마운트 영역 -->
-  <div id="module-mount-point" class="hidden">
-    <div id="module-widget-body"></div>
-  </div>
-
-  <!-- 3. 로그인 / 회원가입 뷰 -->
-  <div id="view-auth" class="card hidden" style="max-width:440px; margin:0 auto;">
-    <div style="display:flex; gap:10px; margin-bottom:16px;">
-      <button type="button" onclick="toggleAuthForm('login')" style="flex:1;">로그인</button>
-      <button type="button" class="secondary" onclick="toggleAuthForm('signup')" style="flex:1;">회원가입</button>
-    </div>
-
-    <form id="login-form" onsubmit="handleLogin(event)">
-      <div style="margin-bottom:10px;"><label>이메일</label><input type="email" id="login-email" required /></div>
-      <div style="margin-bottom:12px;"><label>비밀번호</label><input type="password" id="login-password" required /></div>
-      <button type="submit" style="width:100%;">로그인</button>
-    </form>
-
-    <form id="signup-form" class="hidden" onsubmit="handleSignup(event)">
-      <div style="margin-bottom:10px;"><label>이메일</label><input type="email" id="signup-email" required /></div>
-      <div style="margin-bottom:10px;"><label>닉네임</label><input type="text" id="signup-nickname" required /></div>
-      <div style="margin-bottom:12px;"><label>비밀번호</label><input type="password" id="signup-password" required /></div>
-      <button type="submit" style="width:100%;">가입하기</button>
-    </form>
-  </div>
-
-  <!-- 4. 마이페이지 및 관리자 모드 뷰 -->
-  <div id="view-admin" class="hidden">
-    <div class="card">
-      <div class="admin-subnav">
-        <button type="button" id="btn-subtab-profile" class="subtab-btn active" onclick="switchAdminTab('profile')">내 정보</button>
-        <button type="button" id="btn-subtab-modules" class="subtab-btn admin-tab-only hidden" onclick="switchAdminTab('modules')">도구 관리</button>
-        <button type="button" id="btn-subtab-users" class="subtab-btn admin-tab-only hidden" onclick="switchAdminTab('users')">회원 관리</button>
-        <button type="button" id="btn-subtab-grades" class="subtab-btn admin-tab-only hidden" onclick="switchAdminTab('grades')">등급 관리</button>
-      </div>
-
-      <div id="admin-sec-profile">
-        <h3 style="margin-top:0;">내 계정 정보</h3>
-        <div id="my-profile-card"></div>
-      </div>
-
-      <div id="admin-sec-modules" class="hidden">
-        <h3 style="margin-top:0;">도구 활성화 및 접근 권한 관리</h3>
-        <div class="row" style="margin-bottom:10px;">
-          <div><input type="text" id="admin-mod-search" placeholder="도구명/ID 검색..." oninput="renderAdminModulesPage(1)" /></div>
-          <div style="max-width:150px;">
-            <select id="admin-mod-filter" onchange="renderAdminModulesPage(1)">
-              <option value="ALL">전체 상태</option>
-              <option value="ON">ON (활성)</option>
-              <option value="OFF">OFF (비활성)</option>
-            </select>
-          </div>
-          <div style="max-width:120px;">
-            <select id="admin-mod-pagesize" onchange="renderAdminModulesPage(1)">
-              <option value="10">10개씩</option>
-              <option value="20">20개씩</option>
-            </select>
-          </div>
-        </div>
-        <div id="admin-mod-summary" class="list-summary"></div>
-        <table>
-          <thead>
-            <tr><th>도구 이름</th><th>설명</th><th>상태</th><th>접근 조건</th><th>허용 등급</th><th>저장</th></tr>
-          </thead>
-          <tbody id="admin-module-list"></tbody>
-        </table>
-        <div id="admin-mod-pagination"></div>
-      </div>
-
-      <div id="admin-sec-users" class="hidden">
-        <h3 style="margin-top:0;">회원 등급 및 상태 관리</h3>
-        <div class="row" style="margin-bottom:10px;">
-          <div><input type="text" id="admin-user-search" placeholder="이메일/닉네임 검색..." oninput="renderAdminUsersPage(1)" /></div>
-          <div style="max-width:160px;">
-            <select id="admin-user-grade-filter" onchange="renderAdminUsersPage(1)">
-              <option value="ALL">전체 등급</option>
-            </select>
-          </div>
-          <div style="max-width:140px;">
-            <select id="admin-user-status-filter" onchange="renderAdminUsersPage(1)">
-              <option value="ALL">전체 상태</option>
-              <option value="ACTIVE">활성</option>
-              <option value="INACTIVE">정지</option>
-            </select>
-          </div>
-          <div style="max-width:120px;">
-            <select id="admin-user-pagesize" onchange="renderAdminUsersPage(1)">
-              <option value="10">10명씩</option>
-              <option value="20">20명씩</option>
-            </select>
-          </div>
-        </div>
-        <div id="admin-user-summary" class="list-summary"></div>
-        <table>
-          <thead><tr><th>이메일</th><th>닉네임</th><th>등급</th><th>상태</th><th>저장</th></tr></thead>
-          <tbody id="admin-user-list"></tbody>
-        </table>
-        <div id="admin-user-pagination"></div>
-      </div>
-
-      <div id="admin-sec-grades" class="hidden">
-        <h3 style="margin-top:0;">회원 등급 관리</h3>
-        <form onsubmit="handleCreateGrade(event)" class="row" style="margin-bottom:16px;">
-          <div><label>등급 코드</label><input type="text" id="grade-code" placeholder="예: TEACHER, VIP" required /></div>
-          <div><label>등급 이름</label><input type="text" id="grade-name" placeholder="예: 선생님" required /></div>
-          <div><label>레벨</label><input type="number" id="grade-level" value="10" required /></div>
-          <div style="flex:0;"><button type="submit">추가</button></div>
-        </form>
-        <div id="admin-grade-summary" class="list-summary"></div>
-        <table>
-          <thead><tr><th>코드</th><th>등급 이름</th><th>레벨</th><th>구분</th></tr></thead>
-          <tbody id="admin-grade-list"></tbody>
-        </table>
-        <div id="admin-grade-pagination"></div>
-      </div>
-    </div>
-  </div>
+  <!-- 모든 화면(도구 목록, 개별 도구, 인증, 관리자/내 정보)이 동적으로 렌더링되는 단일 컨테이너 -->
+  <div id="app-mount-point"></div>
 </div>
 
-<script src="/static/js/shell.js?v=21"></script>
+<script src="/static/js/shell.js?v=22"></script>
 </body>
 </html>
