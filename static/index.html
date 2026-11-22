@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LangHuv - 언어 교육 도구 플랫폼</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=10" />
+</head>
+<body>
+
+<header>
+  <div class="nav-left">
+    <span class="brand" onclick="openToolsDirectory()">LangHuv</span>
+    <button type="button" class="menu-btn primary-nav" onclick="openToolsDirectory()">도구</button>
+  </div>
+  <div class="nav-right" id="nav-user-area"></div>
+</header>
+
+<div class="container">
+  <div id="message" class="msg"></div>
+  <!-- 모든 화면(도구 목록, 개별 도구, 인증, 관리자)이 동적으로 렌더링되는 단일 컨테이너 -->
+  <div id="app-mount-point"></div>
+</div>
+
+<script src="/static/js/shell.js?v=16"></script>
+</body>
+</html>
