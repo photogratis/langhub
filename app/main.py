@@ -41,6 +41,7 @@ for base_pkg in ["auth", "admin"]:
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
+@app.head("/", include_in_schema=False)
 def read_index():
     return FileResponse("static/index.html")
