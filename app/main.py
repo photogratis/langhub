@@ -1,8 +1,10 @@
 import os
-from fastapi import FastAPI
+import asyncio, httpx
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 
 from app.core.module_loader import load_all_modules
 from app.core.menu_router import router as menu_router
@@ -11,7 +13,28 @@ from app.base.users.router import router as users_router
 from app.base.admin.router import router as admin_router
 
 app = FastAPI(title="LangHuv")
-
+@app.middleware("http")
+async def concurrency_resilience_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except (httpx.TransportError, ConnectionResetError, BrokenPipeError):
+        # 동시 접속 순간에 소켓이 끊긴 경우 짧게 대기 후 1회 재시도 (조회 요청 등 안전 처리)
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            await asyncio.sleep(0.15)
+            try:
+                return await call_next(request)
+            except Exception:
+                pass
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "동시 요청이 많아 연결이 일시 지연되었습니다. 잠시 후 다시 시도해 주세요."},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"서버 처리 중 일시적 오류가 발생했습니다: {str(exc)}"},
+        )
+    
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
