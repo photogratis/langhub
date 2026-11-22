@@ -1,11 +1,10 @@
-import uuid
 import os
-import math
+import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from app.core.database import supabase
+from app.core.supabase_client import supabase
+from app.core.security import get_current_user
 from app.core.module_guard import require_module_access
-from app.base.auth.dependencies import get_current_user
 from app.modules.korean_exam.schemas import (
     QuestionGroupCreate,
     ExamQuestionCreate,
@@ -17,110 +16,92 @@ from app.modules.korean_exam.schemas import (
 )
 from app.modules.korean_exam.service import (
     generate_exam_paper,
-    generate_exam_from_paper,
     generate_retry_exam_paper,
     grade_and_save_exam,
 )
 
 router = APIRouter()
 
+UPLOAD_DIR = "app/static/uploads/korean_exam"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 def require_teacher_or_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """
-    관리자(ADMIN) 또는 선생님(TEACHER) 등급 회원만 문항 등록 및 시험지 제작 허용
-    """
-    if current_user.get("grade") not in ("ADMIN", "TEACHER"):
-        raise HTTPException(
-            status_code=403,
-            detail="선생님(TEACHER) 또는 관리자(ADMIN) 등급만 접근할 수 있습니다.",
-        )
+    grade = str(current_user.get("grade") or current_user.get("role") or "").upper()
+    if grade not in ("ADMIN", "TEACHER"):
+        raise HTTPException(status_code=403, detail="선생님(TEACHER) 또는 관리자(ADMIN) 권한이 필요합니다.")
     return current_user
 
 
+# =========================================================
+# 1. 미디어 파일 업로드 (이미지 / 오디오)
+# =========================================================
 @router.post("/upload-media")
 async def upload_exam_media(
     file: UploadFile = File(...),
-    staff: dict = Depends(require_teacher_or_admin),
+    current_user: dict = Depends(require_teacher_or_admin),
 ):
     ext = os.path.splitext(file.filename or "")[1].lower()
-    allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".wav", ".ogg", ".m4a"}
-    if ext not in allowed_exts:
-        raise HTTPException(status_code=400, detail=f"지원하지 않는 파일 형식입니다: {ext}")
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".wav", ".ogg", ".m4a"):
+        raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
 
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
     content = await file.read()
-    storage_path = f"uploads/{uuid.uuid4().hex}{ext}"
+    with open(filepath, "wb") as f:
+        f.write(content)
 
-    try:
-        supabase.storage.from_("exam-media").upload(
-            path=storage_path,
-            file=content,
-            file_options={"content-type": file.content_type or "application/octet-stream"},
-        )
-        public_url = supabase.storage.from_("exam-media").get_public_url(storage_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"미디어 업로드 실패: {str(e)}")
-
-    return {"url": public_url, "filename": file.filename}
+    return {"url": f"/static/uploads/korean_exam/{filename}", "filename": filename}
 
 
-# 1. 문제 그룹 CRUD
+# =========================================================
+# 2. 지문 그룹 관리 (CRUD)
+# =========================================================
 @router.get("/groups")
 def list_question_groups(
     user: Optional[dict] = Depends(require_module_access("korean_exam")),
 ):
     res = supabase.table("exam_question_groups").select("*").order("created_at", desc=True).execute()
-    return res.data or []
+    return {"groups": res.data or []}
 
 
 @router.post("/groups")
 def create_question_group(
     req: QuestionGroupCreate,
-    staff: dict = Depends(require_teacher_or_admin),
+    current_user: dict = Depends(require_teacher_or_admin),
 ):
     payload = req.model_dump()
-    payload["tags"] = [t.strip() for t in req.tags if t.strip()]
+    payload["created_by"] = str(current_user["id"])
     res = supabase.table("exam_question_groups").insert(payload).execute()
-    return res.data[0]
-
-
-@router.put("/groups/{group_id}")
-def update_question_group(
-    group_id: str,
-    req: QuestionGroupCreate,
-    staff: dict = Depends(require_teacher_or_admin),
-):
-    payload = req.model_dump()
-    payload["tags"] = [t.strip() for t in req.tags if t.strip()]
-    res = supabase.table("exam_question_groups").update(payload).eq("id", group_id).execute()
     if not res.data:
-        raise HTTPException(status_code=404, detail="그룹을 찾을 수 없습니다.")
-    return res.data[0]
+        raise HTTPException(status_code=500, detail="지문 그룹 생성에 실패했습니다.")
+    return {"group": res.data[0]}
 
 
 @router.delete("/groups/{group_id}")
-def delete_question_group(group_id: str, staff: dict = Depends(require_teacher_or_admin)):
+def delete_question_group(
+    group_id: str,
+    current_user: dict = Depends(require_teacher_or_admin),
+):
     supabase.table("exam_question_groups").delete().eq("id", group_id).execute()
-    return {"message": "그룹과 소속 문항이 삭제되었습니다."}
+    return {"message": "지문 그룹이 삭제되었습니다."}
 
 
-# 2. 문제은행 문항 조회 (검색 + 다중 필터 + 페이지네이션 지원)
+# =========================================================
+# 3. 문제은행 문항 관리 (CRUD + 검색/필터)
+# =========================================================
 @router.get("/questions")
-def list_bank_questions(
+def list_exam_questions(
     level: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     question_type: Optional[str] = Query(None),
     group_id: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
-    tag: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(15, ge=1, le=200),
-    staff: dict = Depends(require_teacher_or_admin),
+    keyword: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(require_teacher_or_admin),
 ):
-    query = (
-        supabase.table("exam_questions")
-        .select("*, exam_question_groups(id, title, level, category)", count="exact")
-        .order("created_at", desc=True)
-    )
+    query = supabase.table("exam_questions").select("*", count="exact")
     if level:
         query = query.eq("level", level)
     if category:
@@ -129,212 +110,55 @@ def list_bank_questions(
         query = query.eq("question_type", question_type)
     if group_id:
         query = query.eq("group_id", group_id)
-    if q and q.strip():
-        kw = q.strip()
-        query = query.or_(f"prompt_text.ilike.%{kw}%,passage_text.ilike.%{kw}%")
+    if keyword:
+        query = query.ilike("prompt_text", f"%{keyword}%")
 
-    has_tag = bool(tag and tag.strip())
-    if not has_tag:
-        start = (page - 1) * page_size
-        end = start + page_size - 1
-        res = query.range(start, end).execute()
-        items = res.data or []
-        total = res.count if res.count is not None else len(items)
-    else:
-        res = query.execute()
-        all_items = res.data or []
-        target_tag = tag.strip().lower()
-        filtered = [
-            item for item in all_items
-            if any(target_tag in t.lower() for t in (item.get("tags") or []))
-        ]
-        total = len(filtered)
-        start = (page - 1) * page_size
-        items = filtered[start : start + page_size]
-
-    total_pages = max(1, math.ceil(total / page_size))
+    res = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": total_pages,
+        "questions": res.data or [],
+        "total": res.count if res.count is not None else len(res.data or []),
     }
 
 
 @router.post("/questions")
-def create_bank_question(
+def create_exam_question(
     req: ExamQuestionCreate,
-    staff: dict = Depends(require_teacher_or_admin),
+    current_user: dict = Depends(require_teacher_or_admin),
 ):
     payload = req.model_dump()
-    payload["group_id"] = req.group_id if req.group_id else None
-    payload["choices"] = [c.model_dump() for c in req.choices]
-    payload["correct_answers"] = [a.strip() for a in req.correct_answers if a.strip()]
-    payload["tags"] = [t.strip() for t in req.tags if t.strip()]
-
+    if not payload.get("group_id"):
+        payload["group_id"] = None
+    payload["created_by"] = str(current_user["id"])
     res = supabase.table("exam_questions").insert(payload).execute()
-    return res.data[0]
-
-
-@router.put("/questions/{question_id}")
-def update_bank_question(
-    question_id: str,
-    req: ExamQuestionCreate,
-    staff: dict = Depends(require_teacher_or_admin),
-):
-    payload = req.model_dump()
-    payload["group_id"] = req.group_id if req.group_id else None
-    payload["choices"] = [c.model_dump() for c in req.choices]
-    payload["correct_answers"] = [a.strip() for a in req.correct_answers if a.strip()]
-    payload["tags"] = [t.strip() for t in req.tags if t.strip()]
-
-    res = supabase.table("exam_questions").update(payload).eq("id", question_id).execute()
     if not res.data:
-        raise HTTPException(status_code=404, detail="문항을 찾을 수 없습니다.")
-    return res.data[0]
+        raise HTTPException(status_code=500, detail="문항 등록에 실패했습니다.")
+    return {"question": res.data[0]}
 
 
 @router.delete("/questions/{question_id}")
-def delete_bank_question(question_id: str, staff: dict = Depends(require_teacher_or_admin)):
+def delete_exam_question(
+    question_id: str,
+    current_user: dict = Depends(require_teacher_or_admin),
+):
     supabase.table("exam_questions").delete().eq("id", question_id).execute()
     return {"message": "문항이 삭제되었습니다."}
 
 
-# 3. 선생님/관리자 제작 시험지(exam_papers) CRUD
+# =========================================================
+# 4. 출제된 시험지 관리 및 공유 링크 정보
+# =========================================================
 @router.get("/papers")
 def list_exam_papers(
-    include_unpublished: bool = Query(False),
     user: Optional[dict] = Depends(require_module_access("korean_exam")),
 ):
     query = supabase.table("exam_papers").select("*").order("created_at", desc=True)
-    is_staff = bool(user and user.get("grade") in ("ADMIN", "TEACHER"))
-    if not (include_unpublished and is_staff):
+    grade = str((user or {}).get("grade") or (user or {}).get("role") or "").upper()
+    if grade not in ("ADMIN", "TEACHER"):
         query = query.eq("is_published", True)
     res = query.execute()
-    return res.data or []
+    return {"papers": res.data or []}
 
 
-@router.post("/papers")
-def create_exam_paper(
-    req: ExamPaperCreate,
-    staff: dict = Depends(require_teacher_or_admin),
-):
-    items_data = [item.model_dump() for item in req.items]
-    total_points = sum(item["points"] for item in items_data)
-
-    payload = {
-        "title": req.title.strip(),
-        "description": req.description.strip(),
-        "level": req.level,
-        "category": req.category,
-        "time_limit_seconds": req.time_limit_seconds,
-        "total_points": total_points,
-        "items": items_data,
-        "is_published": req.is_published,
-        "created_by": str(staff["id"]),
-        "creator_name": staff.get("nickname") or staff.get("username") or "선생님",
-    }
-    res = supabase.table("exam_papers").insert(payload).execute()
-    return res.data[0]
-
-
-@router.put("/papers/{paper_id}")
-def update_exam_paper(
-    paper_id: str,
-    req: ExamPaperCreate,
-    staff: dict = Depends(require_teacher_or_admin),
-):
-    items_data = [item.model_dump() for item in req.items]
-    total_points = sum(item["points"] for item in items_data)
-
-    payload = {
-        "title": req.title.strip(),
-        "description": req.description.strip(),
-        "level": req.level,
-        "category": req.category,
-        "time_limit_seconds": req.time_limit_seconds,
-        "total_points": total_points,
-        "items": items_data,
-        "is_published": req.is_published,
-    }
-    res = supabase.table("exam_papers").update(payload).eq("id", paper_id).execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="시험지를 찾을 수 없습니다.")
-    return res.data[0]
-
-
-@router.delete("/papers/{paper_id}")
-def delete_exam_paper(paper_id: str, staff: dict = Depends(require_teacher_or_admin)):
-    supabase.table("exam_papers").delete().eq("id", paper_id).execute()
-    return {"message": "시험지가 삭제되었습니다."}
-
-
-@router.post("/papers/{paper_id}/start")
-def start_published_exam_paper(
-    paper_id: str,
-    user: Optional[dict] = Depends(require_module_access("korean_exam")),
-):
-    return generate_exam_from_paper(paper_id)
-
-
-# 4. 랜덤 시험지 추출 / 다시보기 시험지 추출 / 채점 및 회차 저장
-@router.post("/generate")
-def api_generate_exam(
-    req: ExamGenerateRequest,
-    user: Optional[dict] = Depends(require_module_access("korean_exam")),
-):
-    return generate_exam_paper(req)
-
-
-@router.post("/retry")
-def api_retry_exam(
-    req: ExamRetryRequest,
-    user: Optional[dict] = Depends(require_module_access("korean_exam")),
-):
-    return generate_retry_exam_paper(req, user)
-
-
-@router.post("/submit")
-def api_submit_exam(
-    req: ExamSubmitRequest,
-    user: Optional[dict] = Depends(require_module_access("korean_exam")),
-):
-    return grade_and_save_exam(req, user)
-
-
-# 5. 내 시험 응시 이력 조회 및 삭제
-@router.get("/my-attempts")
-def get_my_exam_attempts(current_user: dict = Depends(get_current_user)):
-    res = (
-        supabase.table("exam_attempts")
-        .select("*")
-        .eq("user_id", str(current_user["id"]))
-        .order("created_at", desc=True)
-        .limit(100)
-        .execute()
-    )
-    return res.data or []
-
-
-@router.delete("/my-attempts/{attempt_id}")
-def delete_single_exam_attempt(
-    attempt_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    supabase.table("exam_attempts").delete().eq("id", attempt_id).eq("user_id", str(current_user["id"])).execute()
-    return {"message": "해당 회차 시험 기록이 삭제되었습니다."}
-
-
-@router.delete("/my-series/{series_id}")
-def delete_exam_series(
-    series_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    supabase.table("exam_attempts").delete().eq("series_id", series_id).eq("user_id", str(current_user["id"])).execute()
-    return {"message": "연관된 모든 회차의 시험 기록이 삭제되었습니다."}
-
-# 특정 배포 시험지 단건 요약 조회 (비회원 공유 링크 접속 시 제목·안내·문항수 미리보기용)
 @router.get("/papers/{paper_id}/info")
 def get_public_exam_paper_info(paper_id: str):
     res = supabase.table("exam_papers").select("*").eq("id", paper_id).execute()
@@ -356,7 +180,141 @@ def get_public_exam_paper_info(paper_id: str):
     }
 
 
-# 비회원이 방금 본 시험 결과를 회원가입/로그인 직후 내 계정으로 영구 저장
+@router.post("/papers")
+def create_exam_paper(
+    req: ExamPaperCreate,
+    current_user: dict = Depends(require_teacher_or_admin),
+):
+    total_points = sum(item.points for item in req.items)
+    payload = {
+        "title": req.title,
+        "description": req.description,
+        "level": req.level,
+        "category": req.category,
+        "time_limit_seconds": req.time_limit_seconds,
+        "is_published": req.is_published,
+        "total_points": total_points,
+        "items": [item.model_dump() for item in req.items],
+        "created_by": str(current_user["id"]),
+        "creator_name": current_user.get("username") or current_user.get("email") or "선생님",
+    }
+    res = supabase.table("exam_papers").insert(payload).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="시험지 저장에 실패했습니다.")
+    return {"paper": res.data[0]}
+
+
+@router.delete("/papers/{paper_id}")
+def delete_exam_paper(
+    paper_id: str,
+    current_user: dict = Depends(require_teacher_or_admin),
+):
+    supabase.table("exam_papers").delete().eq("id", paper_id).execute()
+    return {"message": "시험지가 삭제되었습니다."}
+
+
+@router.post("/papers/{paper_id}/start")
+def start_published_exam_paper(
+    paper_id: str,
+    user: Optional[dict] = Depends(require_module_access("korean_exam")),
+):
+    res = supabase.table("exam_papers").select("*").eq("id", paper_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="시험지를 찾을 수 없습니다.")
+    paper = res.data[0]
+    if not paper.get("is_published", True):
+        raise HTTPException(status_code=403, detail="비공개 상태인 시험지입니다.")
+
+    items = sorted(paper.get("items") or [], key=lambda x: x.get("order_no", 1))
+    q_ids = [it["question_id"] for it in items]
+    if not q_ids:
+        raise HTTPException(status_code=400, detail="시험지에 포함된 문항이 없습니다.")
+
+    q_res = supabase.table("exam_questions").select("*").in_("id", q_ids).execute()
+    q_map = {str(q["id"]): q for q in (q_res.data or [])}
+
+    g_ids = list({str(q["group_id"]) for q in q_map.values() if q.get("group_id")})
+    g_map = {}
+    if g_ids:
+        g_res = supabase.table("exam_question_groups").select("*").in_("id", g_ids).execute()
+        g_map = {str(g["id"]): g for g in (g_res.data or [])}
+
+    assembled = []
+    for idx, it in enumerate(items, start=1):
+        qid = str(it["question_id"])
+        q = q_map.get(qid)
+        if not q:
+            continue
+        grp = g_map.get(str(q["group_id"])) if q.get("group_id") else None
+        choices = [
+            {
+                "id": c.get("id"),
+                "text": c.get("text", ""),
+                "image_url": c.get("image_url", ""),
+                "audio_url": c.get("audio_url", ""),
+                "tts_text": c.get("tts_text", ""),
+            }
+            for c in (q.get("choices") or [])
+        ]
+        assembled.append({
+            "display_no": idx,
+            "question_id": qid,
+            "group_id": str(q["group_id"]) if q.get("group_id") else None,
+            "group_title": grp["title"] if grp else "",
+            "group_instruction": grp["instruction"] if grp else "",
+            "group_passage_text": grp.get("passage_text", "") if grp else "",
+            "group_image_url": grp.get("image_url", "") if grp else "",
+            "group_audio_url": grp.get("audio_url", "") if grp else "",
+            "group_tts_text": grp.get("tts_text", "") if grp else "",
+            "question_type": q.get("question_type", "MCQ"),
+            "level": q.get("level", "초급"),
+            "category": q.get("category", "읽기"),
+            "points": it.get("points", q.get("points", 10)),
+            "prompt_text": q.get("prompt_text", ""),
+            "passage_text": q.get("passage_text", ""),
+            "image_url": q.get("image_url", ""),
+            "audio_url": q.get("audio_url", ""),
+            "tts_text": q.get("tts_text", ""),
+            "choices": choices,
+        })
+
+    return {
+        "exam_title": paper["title"],
+        "time_limit_seconds": paper.get("time_limit_seconds", 600),
+        "total_questions": len(assembled),
+        "total_points": sum(x["points"] for x in assembled),
+        "questions": assembled,
+    }
+
+
+# =========================================================
+# 5. 시험 출제 / 재시험 / 채점 / 비회원 기록 이관
+# =========================================================
+@router.post("/generate")
+def generate_exam(
+    req: ExamGenerateRequest,
+    user: Optional[dict] = Depends(require_module_access("korean_exam")),
+):
+    return generate_exam_paper(req)
+
+
+@router.post("/retry")
+def retry_exam(
+    req: ExamRetryRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    return generate_retry_exam_paper(req, str(current_user["id"]))
+
+
+@router.post("/submit")
+def submit_exam(
+    req: ExamSubmitRequest,
+    user: Optional[dict] = Depends(require_module_access("korean_exam")),
+):
+    user_id = str(user["id"]) if user and user.get("id") else None
+    return grade_and_save_exam(req, user_id)
+
+
 @router.post("/claim-guest-attempt")
 def claim_guest_exam_attempt(
     req: ClaimGuestAttemptRequest,
@@ -391,3 +349,38 @@ def claim_guest_exam_attempt(
         "series_id": saved_id,
         "message": "비회원 상태로 응시한 시험 결과가 회원 계정에 1회차 기록으로 안전하게 저장되었습니다.",
     }
+
+
+# =========================================================
+# 6. 응시 이력 조회 및 삭제
+# =========================================================
+@router.get("/attempts")
+def list_my_exam_attempts(
+    current_user: dict = Depends(get_current_user),
+):
+    res = (
+        supabase.table("exam_attempts")
+        .select("*")
+        .eq("user_id", str(current_user["id"]))
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return {"attempts": res.data or []}
+
+
+@router.delete("/attempts/{attempt_id}")
+def delete_single_attempt(
+    attempt_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    supabase.table("exam_attempts").delete().eq("id", attempt_id).eq("user_id", str(current_user["id"])).execute()
+    return {"message": "시험 기록이 삭제되었습니다."}
+
+
+@router.delete("/attempts/series/{series_id}")
+def delete_series_attempts(
+    series_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    supabase.table("exam_attempts").delete().eq("series_id", series_id).eq("user_id", str(current_user["id"])).execute()
+    return {"message": "해당 시험의 전체 회차 기록이 삭제되었습니다."}
