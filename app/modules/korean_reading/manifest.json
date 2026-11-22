@@ -1,0 +1,14 @@
+{
+  "module_id": "korean_reading",
+  "name": "한국어 정확·빠른 읽기 테스트",
+  "description": "실제 발화 시작~종료 정밀 타이머로 한국어 읽기 속도와 정확도를 측정하고 공개된 녹음을 함께 들어보는 학습 도구",
+  "version": "1.0.0",
+  "type": "feature",
+  "dependencies": [],
+  "ui": {
+    "asset_module": "korean_reading",
+    "html": "widget.html",
+    "js": "widget.js",
+    "init_fn": "initKoreanReadingModule"
+  }
+}
