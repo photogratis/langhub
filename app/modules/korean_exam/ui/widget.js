@@ -43,7 +43,7 @@ async function ensureKoreanExamSubScripts() {
       const script = document.createElement("script");
       script.src = `/static/modules/korean_exam/${file}?v=${v}`;
       script.onload = resolve;
-      script.onerror = () => reject(new Error(`${file} 로드 실패`));
+      script.onerror = () => reject(new Error(`${file} 파일을 불러오지 못했습니다. (경로: app/modules/korean_exam/ui/${file})`));
       document.body.appendChild(script);
     });
   }
@@ -53,7 +53,6 @@ async function ensureKoreanExamSubScripts() {
 async function initKoreanExamModule() {
   stopAllExamAudio();
 
-  // 1. 분할된 하위 스크립트(exam_take.js, exam_history.js, exam_admin.js)를 먼저 로드
   try {
     await ensureKoreanExamSubScripts();
   } catch (err) {
@@ -61,12 +60,10 @@ async function initKoreanExamModule() {
     return;
   }
 
-  // 2. 하위 스크립트 로드 완료 후 타이머 초기화 호출
   if (typeof stopExamTimer === "function") {
     stopExamTimer();
   }
 
-  // 3. 전역 currentUser가 아직 비어 있고 토큰이 있다면 직접 내 정보 조회
   const token = localStorage.getItem("access_token");
   if (!currentUser && token) {
     try {
@@ -108,6 +105,7 @@ async function initKoreanExamModule() {
 function switchKexamTab(tabName) {
   if (typeof clearMsg === "function") clearMsg();
   stopAllExamAudio();
+
   ["take", "history", "papers", "questions", "groups"].forEach(t => {
     const sec = document.getElementById(`kexam-sec-${t}`);
     const btn = document.getElementById(`kexam-tab-${t}`);
@@ -121,14 +119,15 @@ function switchKexamTab(tabName) {
   if (tabName === "history" && typeof loadMyExamHistory === "function") {
     loadMyExamHistory();
   }
-  if (tabName === "papers" && typeof loadPaperPickerQuestions === "function") {
-    loadPaperPickerQuestions(1);
-    renderPaperSelectedItems();
-    loadManagedExamPapers();
+  if (tabName === "papers") {
+    if (typeof loadPaperPickerQuestions === "function") loadPaperPickerQuestions(1);
+    if (typeof renderPaperSelectedItems === "function") renderPaperSelectedItems();
+    if (typeof loadManagedExamPapers === "function") loadManagedExamPapers();
   }
-  if (tabName === "questions" && typeof loadBankQuestionsList === "function") {
-    loadExamGroupsForSelect();
-    loadBankQuestionsList(1);
+  if (tabName === "questions") {
+    if (typeof renderChoicesEditor === "function") renderChoicesEditor();
+    if (typeof loadExamGroupsForSelect === "function") loadExamGroupsForSelect();
+    if (typeof loadBankQuestionsList === "function") loadBankQuestionsList(1);
   }
   if (tabName === "groups" && typeof loadExamGroupsList === "function") {
     loadExamGroupsList();
