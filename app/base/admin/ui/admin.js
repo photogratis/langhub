@@ -48,19 +48,22 @@ async function initAdminView(initialTab = "profile") {
 }
 
 function renderMyProfileSummary() {
-  document.getElementById("my-profile-card").innerHTML = `
-    <div style="font-size:14px; line-height:1.8;">
-      <div><b>닉네임:</b> ${currentUser.nickname}</div>
-      <div><b>이메일:</b> ${currentUser.email}</div>
-      <div><b>현재 등급:</b> <span class="tag">${currentUser.grade}</span></div>
-    </div>
-  `;
+  const card = document.getElementById("my-profile-card");
+  if (card) {
+    card.innerHTML = `
+      <div style="font-size:14px; line-height:1.8;">
+        <div><b>닉네임:</b> ${currentUser.nickname}</div>
+        <div><b>이메일:</b> ${currentUser.email}</div>
+        <div><b>현재 등급:</b> <span class="tag">${currentUser.grade}</span></div>
+      </div>
+    `;
+  }
   const nickInput = document.getElementById("profile-new-nickname");
   if (nickInput) nickInput.value = currentUser.nickname;
 }
 
 function switchAdminTab(tabName) {
-  clearMsg();
+  if (typeof clearMsg === "function") clearMsg();
   ["profile", "modules", "users", "grades", "forbidden"].forEach(t => {
     const sec = document.getElementById(`admin-sec-${t}`);
     const btn = document.getElementById(`btn-subtab-${t}`);
@@ -80,19 +83,19 @@ function switchAdminTab(tabName) {
 
 async function handleUpdateMyNickname(e) {
   e.preventDefault();
-  const nickname = document.getElementById("profile-new-nickname").value;
+  const nickname = document.getElementById("profile-new-nickname").value.trim();
   const res = await fetch("/api/v1/users/me/nickname", {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ nickname })
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) return showMsg(data.detail || "닉네임 변경 실패", true);
 
   currentUser.nickname = data.nickname;
   renderMyProfileSummary();
   await checkCurrentUser();
-  showMsg(data.message);
+  showMsg(data.message || "닉네임이 변경되었습니다.");
 }
 
 async function handleChangeMyPassword(e) {
@@ -110,11 +113,11 @@ async function handleChangeMyPassword(e) {
     headers: getAuthHeaders(),
     body: JSON.stringify({ current_password, new_password, new_password_confirm })
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) return showMsg(data.detail || "비밀번호 변경 실패", true);
 
   e.target.reset();
-  showMsg(data.message);
+  showMsg(data.message || "비밀번호가 변경되었습니다.");
 }
 
 /* =========================================================
