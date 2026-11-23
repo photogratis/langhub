@@ -439,6 +439,104 @@ async function deleteExamQuestion(qid) {
 }
 
 /* =========================================================
+   문항 상세 미리보기 카드 생성 헬퍼 (태그 + 지문 + 미디어 + 보기/정답)
+========================================================= */
+function _escapePreviewHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _buildQuestionDetailPreviewHtml(q) {
+  if (!q) return "";
+  const parts = [];
+
+  // 1. 소속 그룹 표시
+  const grp = q.exam_question_groups;
+  if (grp && grp.title) {
+    parts.push(
+      `<div style="color:#6b21a8; font-size:11px; font-weight:700; margin-top:4px;">[그룹] ${_escapePreviewHtml(grp.title)}</div>`
+    );
+  }
+
+  // 2. 태그 배지 목록 표시
+  const tags = Array.isArray(q.tags) ? q.tags.filter(Boolean) : [];
+  if (tags.length > 0) {
+    const tagBadges = tags
+      .map(
+        t =>
+          `<span class="tag" style="background:#e0f2fe; color:#0369a1; font-size:10.5px; padding:1px 6px; margin-right:3px;">#${_escapePreviewHtml(t)}</span>`
+      )
+      .join("");
+    parts.push(`<div style="margin-top:4px; line-height:1.5;">${tagBadges}</div>`);
+  }
+
+  // 3. 발문(문제 제목)
+  parts.push(
+    `<div style="font-weight:700; color:#0f172a; font-size:13px; margin-top:4px;">${_escapePreviewHtml(q.prompt_text || "")}</div>`
+  );
+
+  // 4. 개별 지문 텍스트
+  if (q.passage_text && q.passage_text.trim()) {
+    parts.push(
+      `<div style="margin-top:5px; padding:6px 8px; background:#f8fafc; border-left:3px solid #94a3b8; border-radius:4px; font-size:12px; color:#334155; white-space:pre-line; line-height:1.45;">${_escapePreviewHtml(q.passage_text.trim())}</div>`
+    );
+  }
+
+  // 5. 미디어(이미지/오디오/TTS) 요약 및 썸네일
+  const mediaBadges = [];
+  if (q.image_url) mediaBadges.push("🖼 이미지 첨부");
+  if (q.audio_url) mediaBadges.push("🎧 오디오 파일");
+  else if (q.tts_text) mediaBadges.push(`🗣 TTS: "${_escapePreviewHtml(q.tts_text)}"`);
+
+  if (mediaBadges.length) {
+    parts.push(
+      `<div style="margin-top:4px; font-size:11px; color:#0284c7; font-weight:600;">${mediaBadges.join(" · ")}</div>`
+    );
+  }
+  if (q.image_url) {
+    parts.push(
+      `<img src="${_escapePreviewHtml(q.image_url)}" style="max-height:70px; max-width:140px; margin-top:4px; border-radius:4px; border:1px solid #cbd5e1;" />`
+    );
+  }
+
+  // 6. 객관식 보기 (정답 하이라이트) 또는 주관식 인정 정답
+  const shortAnswers = q.correct_short_answers || q.correct_answers || [];
+  if (q.question_type === "MCQ" && Array.isArray(q.choices) && q.choices.length) {
+    const choiceLines = q.choices
+      .map((ch, idx) => {
+        const isAns = String(ch.id) === String(q.correct_choice_id);
+        const labelText = ch.text
+          ? _escapePreviewHtml(ch.text)
+          : ch.image_url
+            ? "(이미지 보기)"
+            : ch.audio_url || ch.tts_text
+              ? "(음성 보기)"
+              : "(빈 보기)";
+        return `
+          <div style="font-size:11.5px; padding:3px 6px; border-radius:4px; background:${isAns ? "#dcfce7" : "#f1f5f9"}; color:${isAns ? "#166534" : "#475569"}; font-weight:${isAns ? "700" : "400"};">
+            ${idx + 1}) ${labelText} ${isAns ? "✔" : ""}
+          </div>
+        `;
+      })
+      .join("");
+    parts.push(
+      `<div style="margin-top:6px; display:grid; grid-template-columns:1fr 1fr; gap:4px;">${choiceLines}</div>`
+    );
+  } else if (q.question_type === "SHORT" && Array.isArray(shortAnswers) && shortAnswers.length) {
+    parts.push(
+      `<div style="margin-top:5px; font-size:11.5px; color:#166534; background:#dcfce7; padding:3px 7px; border-radius:4px; display:inline-block;">
+        <b>정답:</b> ${_escapePreviewHtml(shortAnswers.join(" / "))}
+      </div>`
+    );
+  }
+
+  return parts.join("");
+}
+
+/* =========================================================
    3. 공식 시험지 제작 · 문항 담기 · 배포 관리 (kp-*)
 ========================================================= */
 async function loadPaperPickerQuestions(page = 1) {
@@ -446,7 +544,7 @@ async function loadPaperPickerQuestions(page = 1) {
   const q = document.getElementById("kp-picker-q")?.value.trim() || "";
   const level = document.getElementById("kp-picker-level")?.value || "";
 
-  const params = new URLSearchParams({ page: String(page), page_size: "20" });
+  const params = new URLSearchParams({ page: String(page), page_size: "15" });
   if (q) params.append("q", q);
   if (level) params.append("level", level);
 
@@ -454,6 +552,7 @@ async function loadPaperPickerQuestions(page = 1) {
     headers: getAuthHeaders(false),
   });
   const listEl = document.getElementById("kp-picker-list");
+  const pagEl = document.getElementById("kp-picker-pagination");
   if (!listEl) return;
 
   if (!res.ok) {
@@ -467,30 +566,43 @@ async function loadPaperPickerQuestions(page = 1) {
 
   if (!paperPickerQuestions.length) {
     listEl.innerHTML = `<p style="color:#64748b; font-size:12px; text-align:center; padding:16px;">검색된 문항이 없습니다.</p>`;
+    if (pagEl) pagEl.innerHTML = "";
     return;
   }
 
   listEl.innerHTML = paperPickerQuestions
     .map(item => {
       const isAdded = selectedIds.has(String(item.id));
-      const grp = item.exam_question_groups?.title;
       return `
-        <div style="border-bottom:1px solid #e2e8f0; padding:7px 4px; display:flex; justify-content:space-between; align-items:center; gap:6px;">
-          <div style="font-size:12.5px; line-height:1.4;">
-            <span class="pos-badge" style="font-size:10.5px;">${item.level} · ${item.category}</span>
-            ${grp ? `<span style="color:#6b21a8; font-weight:700; font-size:11px;">[${grp}]</span>` : ""}
-            <div>${item.prompt_text}</div>
+        <div style="border:1px solid ${isAdded ? "#86efac" : "#cbd5e1"}; border-radius:6px; padding:9px; margin-bottom:8px; background:${isAdded ? "#f0fdf4" : "#fff"};">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+            <div style="flex:1; min-width:0;">
+              <div>
+                <span class="pos-badge" style="font-size:10.5px;">${item.level} · ${item.category} · ${item.question_type === "MCQ" ? "객관식" : "주관식"}</span>
+                <span class="tag" style="font-size:10.5px;">기본 ${item.points || 10}점</span>
+              </div>
+              ${_buildQuestionDetailPreviewHtml(item)}
+            </div>
+            <button type="button"
+              class="${isAdded ? "secondary" : ""}"
+              style="padding:5px 9px; font-size:11.5px; white-space:nowrap; flex-shrink:0;"
+              onclick="addQuestionToPaper('${item.id}')"
+              ${isAdded ? "disabled" : ""}>
+              ${isAdded ? "✓ 담김" : "+ 담기"}
+            </button>
           </div>
-          <button type="button"
-            class="${isAdded ? "secondary" : ""}"
-            style="padding:4px 8px; font-size:11.5px; white-space:nowrap;"
-            onclick="addQuestionToPaper('${item.id}')">
-            ${isAdded ? "✓ 담김" : "+ 담기"}
-          </button>
         </div>
       `;
     })
     .join("");
+
+  if (pagEl && typeof renderPaginationBar === "function") {
+    pagEl.innerHTML = renderPaginationBar(
+      data.page || 1,
+      data.total_pages || 1,
+      "loadPaperPickerQuestions"
+    );
+  }
 }
 
 function addQuestionToPaper(qid) {
@@ -513,6 +625,15 @@ function removeQuestionFromPaper(idx) {
   paperSelectedItems.splice(idx, 1);
   renderPaperSelectedItems();
   loadPaperPickerQuestions(paperPickerPage);
+}
+
+function movePaperSelectedItem(idx, dir) {
+  const targetIdx = idx + dir;
+  if (targetIdx < 0 || targetIdx >= paperSelectedItems.length) return;
+  const temp = paperSelectedItems[idx];
+  paperSelectedItems[idx] = paperSelectedItems[targetIdx];
+  paperSelectedItems[targetIdx] = temp;
+  renderPaperSelectedItems();
 }
 
 function updatePaperItemPoints(idx, val) {
@@ -543,169 +664,28 @@ function renderPaperSelectedItems() {
   }
 
   container.innerHTML = paperSelectedItems
-    .map(
-      (item, idx) => `
-      <div style="border-bottom:1px solid #e2e8f0; padding:6px 4px; display:flex; justify-content:space-between; align-items:center; gap:6px;">
-        <div style="font-size:12.5px; flex:1;">
-          <b>${idx + 1}번.</b> ${item.raw_question?.prompt_text || ""}
-        </div>
-        <div style="display:flex; align-items:center; gap:4px;">
-          <input type="number" min="1" value="${item.points}" style="width:54px; padding:3px 5px; font-size:12px;" onchange="updatePaperItemPoints(${idx}, this.value)" />
-          <span style="font-size:11px;">점</span>
-          <button type="button" class="danger" style="padding:3px 7px; font-size:11px;" onclick="removeQuestionFromPaper(${idx})">✕</button>
-        </div>
-      </div>
-    `
-    )
-    .join("");
-}
-
-async function saveExamPaper(e) {
-  e.preventDefault();
-  clearMsg();
-
-  if (!paperSelectedItems.length) {
-    return showMsg("시험지에 최소 1문항 이상 담아주세요.", true);
-  }
-
-  const body = {
-    title: document.getElementById("kp-title").value.trim(),
-    description: document.getElementById("kp-desc").value.trim(),
-    level: document.getElementById("kp-level").value,
-    category: document.getElementById("kp-category").value,
-    time_limit_seconds: (parseInt(document.getElementById("kp-mins").value, 10) || 10) * 60,
-    is_published: document.getElementById("kp-published").value === "true",
-    items: paperSelectedItems.map((it, idx) => ({
-      question_id: String(it.question_id),
-      points: parseInt(it.points, 10) || 10,
-      order_no: idx + 1,
-    })),
-  };
-
-  const url = editingPaperId
-    ? `/api/v1/modules/korean_exam/papers/${editingPaperId}`
-    : "/api/v1/modules/korean_exam/papers";
-
-  const res = await fetch(url, {
-    method: editingPaperId ? "PUT" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "시험지 저장 실패", true);
-
-  cancelEditExamPaper();
-  showMsg("시험지가 저장되었습니다!");
-  await loadManagedExamPapers();
-}
-
-async function loadManagedExamPapers() {
-  const res = await fetch("/api/v1/modules/korean_exam/papers?include_unpublished=true", {
-    headers: getAuthHeaders(false),
-  });
-  managedPapersCache = res.ok ? await res.json() : [];
-  const container = document.getElementById("ke-managed-papers-list");
-  if (!container) return;
-
-  if (!managedPapersCache.length) {
-    container.innerHTML = `<p style="color:#64748b;">아직 제작된 시험지가 없습니다.</p>`;
-    return;
-  }
-
-  container.innerHTML = managedPapersCache
-    .map(
-      p => `
-      <div class="word-card" style="margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-          <div>
-            <span class="tag" style="background:${p.is_published ? "#dcfce7; color:#166534" : "#f1f5f9; color:#475569"};">
-              ${p.is_published ? "공개 중" : "비공개"}
-            </span>
-            <span class="pos-badge">${p.level} · ${p.category}</span>
-            <strong style="margin-left:6px; font-size:16px;">${p.title}</strong>
-            <div style="font-size:12px; color:#64748b; margin-top:4px;">
-              구성: ${(p.items || []).length}문항 · 총점: ${p.total_points}점 · 시간: ${Math.round((p.time_limit_seconds || 600) / 60)}분 · 출제자: ${p.creator_name || "-"}
+    .map((item, idx) => {
+      const q = item.raw_question || {};
+      return `
+        <div style="background:#fff; border:1px solid #93c5fd; border-radius:6px; padding:9px; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding-bottom:6px; border-bottom:1px dashed #e2e8f0;">
+            <div>
+              <span class="tag" style="background:#1e293b; color:#fff;">${idx + 1}번</span>
+              <span class="pos-badge" style="font-size:10.5px;">${q.level || "-"} · ${q.category || "-"}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+              <input type="number" min="1" value="${item.points}" style="width:52px; padding:3px 5px; font-size:12px; text-align:right;" onchange="updatePaperItemPoints(${idx}, this.value)" />
+              <span style="font-size:11px;">점</span>
+              <button type="button" class="secondary" style="padding:3px 6px; font-size:11px;" onclick="movePaperSelectedItem(${idx}, -1)">▲</button>
+              <button type="button" class="secondary" style="padding:3px 6px; font-size:11px;" onclick="movePaperSelectedItem(${idx}, 1)">▼</button>
+              <button type="button" class="danger" style="padding:3px 7px; font-size:11px;" onclick="removeQuestionFromPaper(${idx})">✕</button>
             </div>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button type="button" style="padding:4px 9px; font-size:12px; background:#0284c7;" onclick='openExamShareModal("${p.id}", ${JSON.stringify(p.title)})'>🔗 링크·QR 배포</button>
-            <button type="button" style="padding:4px 9px; font-size:12px;" onclick="startEditExamPaper('${p.id}')">수정</button>
-            <button type="button" class="danger" style="padding:4px 9px; font-size:12px;" onclick="deleteExamPaperRecord('${p.id}')">삭제</button>
-          </div>
+          <div>${_buildQuestionDetailPreviewHtml(q)}</div>
         </div>
-      </div>
-    `
-    )
+      `;
+    })
     .join("");
-}
-
-async function startEditExamPaper(paperId) {
-  const p = managedPapersCache.find(item => String(item.id) === String(paperId));
-  if (!p) return;
-
-  editingPaperId = p.id;
-  document.getElementById("kp-title").value = p.title || "";
-  document.getElementById("kp-desc").value = p.description || "";
-  document.getElementById("kp-level").value = p.level || "혼합";
-  document.getElementById("kp-category").value = p.category || "종합";
-  document.getElementById("kp-mins").value = Math.round((p.time_limit_seconds || 600) / 60);
-  document.getElementById("kp-published").value = p.is_published ? "true" : "false";
-
-  const res = await fetch("/api/v1/modules/korean_exam/questions?page=1&page_size=200", {
-    headers: getAuthHeaders(false),
-  });
-  const qData = res.ok ? await res.json() : { items: [] };
-  const qMap = new Map((qData.items || []).map(q => [String(q.id), q]));
-
-  paperSelectedItems = (p.items || [])
-    .sort((a, b) => (a.order_no || 1) - (b.order_no || 1))
-    .map(it => {
-      const found = qMap.get(String(it.question_id)) || {
-        id: String(it.question_id),
-        prompt_text: "(삭제된 문항)",
-        level: "-",
-        category: "-",
-        question_type: "MCQ",
-      };
-      return {
-        question_id: String(it.question_id),
-        raw_question: found,
-        points: it.points || 10,
-      };
-    });
-
-  renderPaperSelectedItems();
-  loadPaperPickerQuestions(paperPickerPage);
-
-  document.getElementById("ke-paper-form-title").textContent = "공식 시험지 수정 중";
-  document.getElementById("kp-submit-btn").textContent = "시험지 수정 저장";
-  document.getElementById("kp-cancel-btn").classList.remove("hidden");
-  document.getElementById("ke-paper-form-title").scrollIntoView({ behavior: "smooth" });
-}
-
-function cancelEditExamPaper() {
-  editingPaperId = null;
-  paperSelectedItems = [];
-  const submitBtn = document.getElementById("kp-submit-btn");
-  if (submitBtn && submitBtn.form) submitBtn.form.reset();
-
-  renderPaperSelectedItems();
-  loadPaperPickerQuestions(1);
-
-  document.getElementById("ke-paper-form-title").textContent = "새 공식 시험지 만들기";
-  if (submitBtn) submitBtn.textContent = "시험지 저장 및 배포";
-  document.getElementById("kp-cancel-btn").classList.add("hidden");
-}
-
-async function deleteExamPaperRecord(paperId) {
-  if (!confirm("이 시험지를 삭제하시겠습니까?")) return;
-  const res = await fetch(`/api/v1/modules/korean_exam/papers/${paperId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  if (!res.ok) return showMsg("시험지 삭제 실패", true);
-  showMsg("시험지가 삭제되었습니다.");
-  await loadManagedExamPapers();
 }
 
 /* =========================================================
