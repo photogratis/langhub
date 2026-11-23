@@ -123,7 +123,6 @@ def list_all_modules_for_admin(admin: dict = Depends(require_admin)):
         })
     return result
 
-
 @router.patch("/modules/{module_id}")
 def update_module_policy(
     module_id: str,
@@ -147,11 +146,12 @@ def update_module_policy(
         "custom_description_id": custom_desc_id,
     }
     try:
-        supabase.table("system_modules").upsert(payload).execute()
+        supabase.table("system_modules").upsert(payload, on_conflict="module_id").execute()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"모듈 설정 저장 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"도구 설정 저장 실패: {str(e)}")
 
     return {"message": "모듈 설정이 저장되었습니다."}
+
 class ForbiddenNicknameCreateRequest(BaseModel):
     word: str = Field(..., min_length=1, max_length=50)
     reason: str = Field("", max_length=200)

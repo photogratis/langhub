@@ -350,10 +350,10 @@ async function handleDeleteForbiddenNickname(wordId) {
 }
 
 async function saveModulePolicy(moduleId) {
-  const custom_name = document.getElementById(`mod-name-${moduleId}`).value.trim();
-  const custom_description = document.getElementById(`mod-desc-${moduleId}`).value.trim();
-  const custom_name_id = document.getElementById(`mod-name-id-${moduleId}`).value.trim();
-  const custom_description_id = document.getElementById(`mod-desc-id-${moduleId}`).value.trim();
+  const custom_name = document.getElementById(`mod-name-${moduleId}`)?.value.trim() || "";
+  const custom_description = document.getElementById(`mod-desc-${moduleId}`)?.value.trim() || "";
+  const custom_name_id = document.getElementById(`mod-name-id-${moduleId}`)?.value.trim() || "";
+  const custom_description_id = document.getElementById(`mod-desc-id-${moduleId}`)?.value.trim() || "";
   const is_enabled = document.getElementById(`mod-en-${moduleId}`).value === "true";
   const access_type = document.getElementById(`mod-acc-${moduleId}`).value;
   const allowed_grades = document.getElementById(`mod-gr-${moduleId}`).value.split(",");
@@ -371,7 +371,10 @@ async function saveModulePolicy(moduleId) {
       allowed_grades,
     }),
   });
-  if (!res.ok) return showMsg("도구 설정 저장 실패", true);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return showMsg(data.detail || "도구 설정 저장 실패", true);
+  }
 
   const target = adminCachedModules.find(m => m.module_id === moduleId);
   if (target) {
