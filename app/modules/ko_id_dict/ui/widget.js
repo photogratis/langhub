@@ -4,7 +4,7 @@ var editingDictWordId = null;
 var currentDictPage = 1;
 
 function initDictModule(moduleId) {
-  currentDictModule = moduleId;
+  currentDictModule = moduleId || activeModuleId || "ko_id_dict";
   editingDictWordId = null;
   currentDictPage = 1;
   const isKoId = moduleId === "ko_id_dict";
