@@ -1,12 +1,16 @@
 import os
 import uuid
 from typing import Optional
+from urllib.parse import unquote
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-
 from app.core.database import supabase
 from app.core.module_guard import require_module_access
 from app.base.auth.dependencies import get_current_user, get_optional_user
-from app.modules.korean_reading.schemas import ReadingPassageCreate, ReadingVisibilityUpdate
+from app.modules.korean_reading.schemas import (
+    ReadingPassageCreate,
+    ReadingPassageUpdate,
+    ReadingVisibilityUpdate,
+)
 from app.modules.korean_reading.service import evaluate_reading_accuracy, compute_passage_stats
 
 router = APIRouter()
@@ -64,6 +68,43 @@ def create_reading_passage(
     return res.data[0]
 
 
+# 2-1. 지문 수정 (관리자 또는 본인 작성 선생님) [신규 추가]
+@router.patch("/passages/{passage_id}")
+def update_reading_passage(
+    passage_id: str,
+    req: ReadingPassageUpdate,
+    staff: dict = Depends(require_teacher_or_admin),
+):
+    existing = supabase.table("reading_passages").select("*").eq("id", passage_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
+
+    row = existing.data[0]
+    if str(staff.get("grade") or "").upper() != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
+        raise HTTPException(status_code=403, detail="본인이 작성한 지문만 수정할 수 있습니다.")
+
+    char_count, word_count = compute_passage_stats(req.content)
+    tags = [t.strip() for t in req.tags if t.strip()]
+
+    payload = {
+        "title": req.title.strip(),
+        "content": req.content.strip(),
+        "level": req.level.strip() or "초급",
+        "tags": tags,
+        "char_count": char_count,
+        "word_count": word_count,
+    }
+    res = (
+        supabase.table("reading_passages")
+        .update(payload)
+        .eq("id", passage_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=500, detail="지문 수정에 실패했습니다.")
+    return res.data[0]
+
+
 # 3. 지문 삭제 (관리자 또는 본인 작성 선생님)
 @router.delete("/passages/{passage_id}")
 def delete_reading_passage(
@@ -75,7 +116,7 @@ def delete_reading_passage(
         raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
 
     row = existing.data[0]
-    if staff.get("grade") != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
+    if str(staff.get("grade") or "").upper() != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
         raise HTTPException(status_code=403, detail="본인이 작성한 지문만 삭제할 수 있습니다.")
 
     supabase.table("reading_passages").delete().eq("id", passage_id).execute()
@@ -97,7 +138,6 @@ async def submit_reading_attempt(
         raise HTTPException(status_code=404, detail="대상 지문을 찾을 수 없습니다.")
     passage = p_res.data[0]
 
-    # 오디오 파일 Supabase Storage 업로드
     ext = os.path.splitext(audio_file.filename or "")[1].lower()
     if ext not in {".webm", ".mp4", ".m4a", ".ogg", ".wav", ".mp3"}:
         ext = ".webm"
@@ -117,7 +157,6 @@ async def submit_reading_attempt(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"녹음 파일 저장 실패: {str(e)}")
 
-    # 정확도 및 속도(분당 음절 수 CPM, 분당 어절 수 WPM) 산출
     safe_duration = max(0.3, round(float(duration_seconds), 2))
     accuracy, diff_tokens = evaluate_reading_accuracy(passage["content"], recognized_text)
 
@@ -126,7 +165,6 @@ async def submit_reading_attempt(
     cpm = round((char_count / safe_duration) * 60)
     wpm = round((word_count / safe_duration) * 60)
 
-    # 비회원은 공개 설정 불가 (개인 테스트 결과만 반환)
     effective_public = bool(is_public) if user else False
 
     payload = {
@@ -153,7 +191,29 @@ async def submit_reading_attempt(
     return saved
 
 
-# 5. 특정 지문의 공개된 다른 사용자 기록 조회 (is_public = True 만 노출)
+# 5-1. 전체 지문의 모든 공개 기록 통합 조회 [신규 추가]
+@router.get("/public-attempts")
+def list_all_public_attempts(
+    sort_by: str = Query("recent", description="accuracy | speed | recent"),
+    user: Optional[dict] = Depends(require_module_access("korean_reading")),
+):
+    query = (
+        supabase.table("reading_attempts")
+        .select("*, reading_passages(title, level)")
+        .eq("is_public", True)
+    )
+    if sort_by == "speed":
+        query = query.order("cpm", desc=True).order("accuracy_score", desc=True)
+    elif sort_by == "accuracy":
+        query = query.order("accuracy_score", desc=True).order("cpm", desc=True)
+    else:
+        query = query.order("created_at", desc=True)
+
+    res = query.limit(100).execute()
+    return res.data or []
+
+
+# 5-2. 특정 지문의 공개된 다른 사용자 기록 조회 (is_public = True 만 노출)
 @router.get("/passages/{passage_id}/public-attempts")
 def list_public_attempts_for_passage(
     passage_id: str,
@@ -162,7 +222,7 @@ def list_public_attempts_for_passage(
 ):
     query = (
         supabase.table("reading_attempts")
-        .select("*")
+        .select("*, reading_passages(title, level)")
         .eq("passage_id", passage_id)
         .eq("is_public", True)
     )
@@ -173,7 +233,7 @@ def list_public_attempts_for_passage(
     else:
         query = query.order("accuracy_score", desc=True).order("cpm", desc=True)
 
-    res = query.limit(50).execute()
+    res = query.limit(100).execute()
     return res.data or []
 
 
@@ -203,7 +263,7 @@ def update_attempt_visibility(
         raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
 
     row = existing.data[0]
-    if str(row.get("user_id")) != str(current_user["id"]) and current_user.get("grade") != "ADMIN":
+    if str(row.get("user_id")) != str(current_user["id"]) and str(current_user.get("grade") or "").upper() != "ADMIN":
         raise HTTPException(status_code=403, detail="본인의 기록만 공개 설정을 변경할 수 있습니다.")
 
     res = (
@@ -213,3 +273,31 @@ def update_attempt_visibility(
         .execute()
     )
     return res.data[0]
+
+
+# 8. 내 녹음 기록 삭제 (오디오 스토리지 파일 포함) [신규 추가]
+@router.delete("/attempts/{attempt_id}")
+def delete_my_reading_attempt(
+    attempt_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    existing = supabase.table("reading_attempts").select("*").eq("id", attempt_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
+
+    row = existing.data[0]
+    if str(row.get("user_id")) != str(current_user["id"]) and str(current_user.get("grade") or "").upper() != "ADMIN":
+        raise HTTPException(status_code=403, detail="본인의 녹음 기록만 삭제할 수 있습니다.")
+
+    # Supabase Storage 파일 삭제 시도
+    audio_url = row.get("audio_url") or ""
+    marker = "/reading-audio/"
+    if marker in audio_url:
+        storage_path = unquote(audio_url.split(marker, 1)[1].split("?", 1)[0])
+        try:
+            supabase.storage.from_("reading-audio").remove([storage_path])
+        except Exception:
+            pass
+
+    supabase.table("reading_attempts").delete().eq("id", attempt_id).execute()
+    return {"message": "녹음 기록이 삭제되었습니다."}

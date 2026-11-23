@@ -2,8 +2,8 @@
    korean_reading/ui/widget.js
    - Web Audio API VAD (실제 발화 시작 ~ 종료 시점 정밀 측정)
    - MediaRecorder (모바일/PC 마이크 녹음)
-   - Web Speech API (ko-KR 무료 한국어 음성 인식)
-   ========================================================= */
+   - Web Speech API (ko-KR 한국어 음성인식 & TTS 들어보기)
+========================================================= */
 
 var kreadingPassagesCache = [];
 var selectedReadingPassage = null;
@@ -19,7 +19,6 @@ var krSpeechRecognition = null;
 var krFinalTranscript = "";
 var krInterimTranscript = "";
 
-// 실제 발화 타임스탬프 (performance.now 기준 ms)
 var krIsRecording = false;
 var krSpeechStarted = false;
 var krActualStartMs = 0;
@@ -34,6 +33,7 @@ function isReadingStaffUser() {
 
 async function initKoreanReadingModule() {
   cleanupReadingAudioEngine();
+  stopReadingTts();
 
   const token = localStorage.getItem("access_token");
   if (!currentUser && token) {
@@ -56,12 +56,17 @@ async function initKoreanReadingModule() {
 function switchKreadingTab(tabName) {
   clearMsg();
   cleanupReadingAudioEngine();
+  stopReadingTts();
 
   const tabs = ["test", "public", "my", "admin"];
   tabs.forEach(t => {
     const btn = document.getElementById(`kr-tab-${t}`);
     const view = document.getElementById(`kr-view-${t}`);
-    if (btn) btn.className = t === tabName ? (t === "admin" ? "kreading-staff-only" : "") : (t === "admin" ? "secondary kreading-staff-only" : "secondary");
+    if (btn) {
+      btn.className = t === tabName
+        ? (t === "admin" ? "kreading-staff-only" : "")
+        : (t === "admin" ? "secondary kreading-staff-only" : "secondary");
+    }
     if (view) view.classList.toggle("hidden", t !== tabName);
   });
 
@@ -76,6 +81,53 @@ function switchKreadingTab(tabName) {
   }
 }
 
+/* =========================================================
+   TTS 들어보기 (Web Speech API speechSynthesis)
+========================================================= */
+function speakActiveReadingPassage(rate = 1.0) {
+  if (!selectedReadingPassage || !selectedReadingPassage.content) return;
+  if (!("speechSynthesis" in window)) {
+    return showMsg("현재 브라우저에서는 TTS 음성 합성을 지원하지 않습니다.", true);
+  }
+
+  stopReadingTts();
+
+  const utterance = new SpeechSynthesisUtterance(selectedReadingPassage.content);
+  utterance.lang = "ko-KR";
+  utterance.rate = rate;
+  utterance.pitch = 1.0;
+
+  const voices = window.speechSynthesis.getVoices();
+  const koVoice = voices.find(v => v.lang && v.lang.toLowerCase().includes("ko"));
+  if (koVoice) utterance.voice = koVoice;
+
+  const stopBtn = document.getElementById("kr-btn-tts-stop");
+  utterance.onstart = () => {
+    if (stopBtn) stopBtn.classList.remove("hidden");
+  };
+  utterance.onend = () => {
+    if (stopBtn) stopBtn.classList.add("hidden");
+  };
+  utterance.onerror = () => {
+    if (stopBtn) stopBtn.classList.add("hidden");
+  };
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopReadingTts() {
+  if ("speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
+  }
+  const stopBtn = document.getElementById("kr-btn-tts-stop");
+  if (stopBtn) stopBtn.classList.add("hidden");
+}
+
+/* =========================================================
+   탭 1: 읽기 지문 목록 및 테스트
+========================================================= */
 async function loadKreadingPassages() {
   const level = document.getElementById("kr-filter-level")?.value || "";
   const tag = document.getElementById("kr-filter-tag")?.value.trim() || "";
@@ -87,7 +139,7 @@ async function loadKreadingPassages() {
   if (q) params.append("q", q);
 
   const res = await fetch(`/api/v1/modules/korean_reading/passages?${params.toString()}`, {
-    headers: getAuthHeaders(false)
+    headers: getAuthHeaders(false),
   });
   const listEl = document.getElementById("kr-passage-list");
   if (!res.ok) {
@@ -122,6 +174,8 @@ async function loadKreadingPassages() {
 
 function selectReadingPassageForTest(passageId) {
   cleanupReadingAudioEngine();
+  stopReadingTts();
+
   const p = kreadingPassagesCache.find(item => item.id === passageId);
   if (!p) return;
 
@@ -147,19 +201,15 @@ function selectReadingPassageForTest(passageId) {
   studio.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-// 녹음 시작 및 VAD(실제 발화 시작·종료 감지) + 한국어 음성인식 가동
 async function startReadingRecording() {
   if (!selectedReadingPassage) return;
   clearMsg();
   cleanupReadingAudioEngine();
+  stopReadingTts();
 
   try {
     krMediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
   } catch (err) {
     return showMsg("마이크 접근 권한이 필요합니다. 브라우저 설정에서 마이크를 허용해 주세요.", true);
@@ -173,7 +223,6 @@ async function startReadingRecording() {
   krActualStartMs = 0;
   krLastSpeechMs = 0;
 
-  // 1. MediaRecorder 초기화 (모바일 Safari/Chrome 호환 MIME 자동 선택)
   const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""];
   let chosenMime = "";
   for (const m of mimeCandidates) {
@@ -191,7 +240,6 @@ async function startReadingRecording() {
   };
   krMediaRecorder.start(100);
 
-  // 2. 브라우저 내장 한국어 음성인식(Web Speech API) 동시 가동
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SpeechRec) {
     krSpeechRecognition = new SpeechRec();
@@ -225,13 +273,16 @@ async function startReadingRecording() {
     krSpeechRecognition.onerror = () => {};
     krSpeechRecognition.onend = () => {
       if (krIsRecording) {
-        try { krSpeechRecognition.start(); } catch {}
+        try {
+          krSpeechRecognition.start();
+        } catch {}
       }
     };
-    try { krSpeechRecognition.start(); } catch {}
+    try {
+      krSpeechRecognition.start();
+    } catch {}
   }
 
-  // 3. Web Audio API RMS 볼륨 감지기 (실제 목소리 시작~종료 정밀 포착)
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   krAudioContext = new AudioCtx();
   const source = krAudioContext.createMediaStreamSource(krMediaStream);
@@ -251,7 +302,7 @@ async function startReadingRecording() {
   document.getElementById("kr-btn-stop").classList.remove("hidden");
   document.getElementById("kr-btn-cancel").classList.remove("hidden");
 
-  const SPEECH_THRESHOLD = 0.028; // 배경 잡음 필터링 임계값
+  const SPEECH_THRESHOLD = 0.028;
 
   function monitorAudioLoop() {
     if (!krIsRecording) return;
@@ -278,14 +329,12 @@ async function startReadingRecording() {
     }
 
     if (krSpeechStarted && timerEl) {
-      // 현재 진행 중일 때는 마지막 발화 시점 기준으로 순수 발화 시간 표시
       const pureElapsedSec = Math.max(0, (krLastSpeechMs - krActualStartMs) / 1000);
       timerEl.textContent = `${pureElapsedSec.toFixed(2)}초`;
     }
 
     krVadAnimId = requestAnimationFrame(monitorAudioLoop);
   }
-
   krVadAnimId = requestAnimationFrame(monitorAudioLoop);
 }
 
@@ -311,7 +360,6 @@ async function stopAndSubmitReading() {
     return showMsg("실제 음성이 감지되지 않았습니다. 마이크에 가까이 대고 다시 읽어주세요.", true);
   }
 
-  // 실제 목소리가 시작된 시점부터 마지막 목소리가 끝난 시점까지의 순수 발화 시간
   const pureDurationSec = Math.max(0.3, (krLastSpeechMs - krActualStartMs) / 1000);
   const fullTranscript = (krFinalTranscript + " " + krInterimTranscript).trim();
   const isPublic = Boolean(document.getElementById("kr-submit-public")?.checked);
@@ -324,7 +372,6 @@ async function stopAndSubmitReading() {
   statusEl.textContent = "⏳ 녹음 파일 저장 및 발음 정확도 분석 중...";
   statusEl.style.color = "#38bdf8";
 
-  // MediaRecorder 종료 후 Blob 생성 대기
   const audioBlob = await new Promise(resolve => {
     const mimeType = (krMediaRecorder && krMediaRecorder.mimeType) || "audio/webm";
     krMediaRecorder.onstop = () => {
@@ -350,7 +397,7 @@ async function stopAndSubmitReading() {
   const res = await fetch("/api/v1/modules/korean_reading/submit", {
     method: "POST",
     headers: getAuthHeaders(false),
-    body: formData
+    body: formData,
   });
   const data = await res.json();
   if (!res.ok) {
@@ -424,25 +471,31 @@ function cleanupReadingAudioEngine() {
     krSilenceAutoStopTimer = null;
   }
   if (krSpeechRecognition) {
-    try { krSpeechRecognition.stop(); } catch {}
+    try {
+      krSpeechRecognition.stop();
+    } catch {}
     krSpeechRecognition = null;
   }
   if (krMediaRecorder && krMediaRecorder.state !== "inactive") {
-    try { krMediaRecorder.stop(); } catch {}
+    try {
+      krMediaRecorder.stop();
+    } catch {}
   }
   if (krMediaStream) {
     krMediaStream.getTracks().forEach(t => t.stop());
     krMediaStream = null;
   }
   if (krAudioContext) {
-    try { krAudioContext.close(); } catch {}
+    try {
+      krAudioContext.close();
+    } catch {}
     krAudioContext = null;
   }
 }
 
-// =========================================================
-// 탭 2: 공개 기록 듣기 & 랭킹 (is_public = true 만 조회)
-// =========================================================
+/* =========================================================
+   탭 2: 공개 기록 듣기 & 랭킹 (전체 지문 통합 보기 + 지문별 필터 모두 지원)
+========================================================= */
 async function populatePublicPassageSelector() {
   if (!kreadingPassagesCache.length) {
     const res = await fetch("/api/v1/modules/korean_reading/passages", { headers: getAuthHeaders(false) });
@@ -450,26 +503,26 @@ async function populatePublicPassageSelector() {
   }
 
   const sel = document.getElementById("kr-public-passage-select");
-  if (!kreadingPassagesCache.length) {
-    sel.innerHTML = `<option value="">등록된 지문이 없습니다</option>`;
-    document.getElementById("kr-public-attempts-list").innerHTML = "";
-    return;
-  }
+  const allOption = `<option value="ALL">🌐 전체 지문 공개 기록 모두 보기</option>`;
+  const passageOptions = kreadingPassagesCache
+    .map(p => `<option value="${p.id}">[${p.level}] ${p.title} (${p.char_count}음절)</option>`)
+    .join("");
 
-  sel.innerHTML = kreadingPassagesCache.map(p => `<option value="${p.id}">[${p.level}] ${p.title} (${p.char_count}음절)</option>`).join("");
-  if (selectedReadingPassage) sel.value = selectedReadingPassage.id;
+  sel.innerHTML = allOption + passageOptions;
+  sel.value = "ALL";
   loadPublicAttemptsForSelectedPassage();
 }
 
 async function loadPublicAttemptsForSelectedPassage() {
-  const passageId = document.getElementById("kr-public-passage-select")?.value;
-  const sortBy = document.getElementById("kr-public-sort")?.value || "accuracy";
+  const passageId = document.getElementById("kr-public-passage-select")?.value || "ALL";
+  const sortBy = document.getElementById("kr-public-sort")?.value || "recent";
   const container = document.getElementById("kr-public-attempts-list");
-  if (!passageId) return;
 
-  const res = await fetch(`/api/v1/modules/korean_reading/passages/${passageId}/public-attempts?sort_by=${sortBy}`, {
-    headers: getAuthHeaders(false)
-  });
+  const endpoint = passageId === "ALL"
+    ? `/api/v1/modules/korean_reading/public-attempts?sort_by=${sortBy}`
+    : `/api/v1/modules/korean_reading/passages/${passageId}/public-attempts?sort_by=${sortBy}`;
+
+  const res = await fetch(endpoint, { headers: getAuthHeaders(false) });
   if (!res.ok) {
     container.innerHTML = `<p style="color:#b91c1c;">공개 기록을 불러오지 못했습니다.</p>`;
     return;
@@ -481,31 +534,38 @@ async function loadPublicAttemptsForSelectedPassage() {
     return;
   }
 
-  container.innerHTML = items.map((item, idx) => `
-    <div class="word-card" style="background:#fff; margin-bottom:10px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
-        <div>
-          <span class="tag" style="background:${idx === 0 ? "#f59e0b" : "#334155"}; color:#fff;">#${idx + 1}</span>
-          <strong style="font-size:15px; margin-left:6px;">${item.user_nickname}</strong>
-          <span style="font-size:12px; color:#64748b; margin-left:6px;">${new Date(item.created_at).toLocaleDateString()}</span>
+  container.innerHTML = items.map((item, idx) => {
+    const pInfo = item.reading_passages;
+    const pBadge = pInfo
+      ? `<span class="pos-badge" style="margin-left:6px;">[${pInfo.level}] ${pInfo.title}</span>`
+      : "";
+
+    return `
+      <div class="word-card" style="background:#fff; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+          <div>
+            <span class="tag" style="background:${idx === 0 ? "#f59e0b" : "#334155"}; color:#fff;">#${idx + 1}</span>
+            <strong style="font-size:15px; margin-left:6px;">${item.user_nickname}</strong>
+            ${pBadge}
+            <span style="font-size:12px; color:#64748b; margin-left:6px;">${new Date(item.created_at).toLocaleDateString()}</span>
+          </div>
+          <div style="font-size:13.5px;">
+            정확도 <b style="color:#16a34a;">${item.accuracy_score}%</b> · 속도 <b style="color:#2563eb;">${item.cpm} CPM</b> (${item.duration_seconds}초)
+          </div>
         </div>
-        <div style="font-size:13.5px;">
-          정확도 <b style="color:#16a34a;">${item.accuracy_score}%</b> ·
-          속도 <b style="color:#2563eb;">${item.cpm} CPM</b> (${item.duration_seconds}초)
-        </div>
+        <audio controls src="${item.audio_url}" style="width:100%; height:36px;"></audio>
       </div>
-      <audio controls src="${item.audio_url}" style="width:100%; height:36px;"></audio>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
-// =========================================================
-// 탭 3: 내 읽기 기록 & 공개/비공개 전환
-// =========================================================
+/* =========================================================
+   탭 3: 내 읽기 기록 & 공개/비공개 전환 & 삭제
+========================================================= */
 async function loadMyReadingAttempts() {
   const container = document.getElementById("kr-my-attempts-list");
   if (!currentUser) {
-    container.innerHTML = `<p style="color:#64748b; text-align:center; padding:24px;">로그인하시면 내 읽기 측정 기록과 공개 설정 관리가 가능합니다.</p>`;
+    container.innerHTML = `<p style="color:#64748b; text-align:center; padding:24px;">로그인하시면 내 읽기 측정 기록과 공개 설정·삭제 관리가 가능합니다.</p>`;
     return;
   }
 
@@ -530,10 +590,13 @@ async function loadMyReadingAttempts() {
             <strong>${pTitle}</strong>
             <span style="font-size:12px; color:#64748b; margin-left:6px;">${new Date(item.created_at).toLocaleString()}</span>
           </div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:13px;">정확도 <b>${item.accuracy_score}%</b> · <b>${item.cpm} CPM</b> (${item.duration_seconds}초)</span>
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <span style="font-size:13px; margin-right:4px;">정확도 <b>${item.accuracy_score}%</b> · <b>${item.cpm} CPM</b> (${item.duration_seconds}초)</span>
             <button type="button" class="${item.is_public ? "" : "secondary"}" style="padding:4px 10px; font-size:12px;" onclick="toggleMyReadingVisibility('${item.id}', ${!item.is_public})">
               ${item.is_public ? "🌐 공개 중 (비공개 전환)" : "🔒 비공개 (공개하기)"}
+            </button>
+            <button type="button" style="background:#dc2626; padding:4px 10px; font-size:12px;" onclick="deleteMyReadingAttempt('${item.id}')">
+              🗑️ 삭제
             </button>
           </div>
         </div>
@@ -547,16 +610,28 @@ async function toggleMyReadingVisibility(attemptId, nextPublic) {
   const res = await fetch(`/api/v1/modules/korean_reading/attempts/${attemptId}/visibility`, {
     method: "PATCH",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ is_public: nextPublic })
+    body: JSON.stringify({ is_public: nextPublic }),
   });
   if (!res.ok) return showMsg("공개 설정 변경 실패", true);
   showMsg(nextPublic ? "기록이 공개되어 다른 학습자도 들을 수 있습니다." : "기록이 비공개로 전환되었습니다.");
   loadMyReadingAttempts();
 }
 
-// =========================================================
-// 탭 4: 지문 등록 · 관리 (관리자 & 선생님)
-// =========================================================
+async function deleteMyReadingAttempt(attemptId) {
+  if (!confirm("이 녹음 기록을 영구 삭제하시겠습니까?")) return;
+  const res = await fetch(`/api/v1/modules/korean_reading/attempts/${attemptId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "녹음 삭제에 실패했습니다.", true);
+  showMsg("녹음 기록이 삭제되었습니다.");
+  loadMyReadingAttempts();
+}
+
+/* =========================================================
+   탭 4: 지문 등록 · 수정 · 삭제 (관리자 & 선생님)
+========================================================= */
 async function handleCreateReadingPassage(e) {
   e.preventDefault();
   clearMsg();
@@ -569,13 +644,56 @@ async function handleCreateReadingPassage(e) {
   const res = await fetch("/api/v1/modules/korean_reading/passages", {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ title, level, tags, content })
+    body: JSON.stringify({ title, level, tags, content }),
   });
   const data = await res.json();
   if (!res.ok) return showMsg(data.detail || "지문 등록 실패", true);
 
   e.target.reset();
   showMsg("새 읽기 지문이 등록되었습니다!");
+  loadAdminReadingPassages();
+}
+
+function openEditReadingPassage(passageId) {
+  const p = kreadingPassagesCache.find(item => item.id === passageId);
+  if (!p) return;
+
+  document.getElementById("kr-edit-id").value = p.id;
+  document.getElementById("kr-edit-title").value = p.title || "";
+  document.getElementById("kr-edit-level").value = p.level || "초급";
+  document.getElementById("kr-edit-tags").value = (p.tags || []).join(", ");
+  document.getElementById("kr-edit-content").value = p.content || "";
+
+  const box = document.getElementById("kr-edit-passage-box");
+  box.classList.remove("hidden");
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function closeEditReadingPassage() {
+  const box = document.getElementById("kr-edit-passage-box");
+  if (box) box.classList.add("hidden");
+}
+
+async function handleUpdateReadingPassage(e) {
+  e.preventDefault();
+  clearMsg();
+
+  const passageId = document.getElementById("kr-edit-id").value;
+  const title = document.getElementById("kr-edit-title").value.trim();
+  const level = document.getElementById("kr-edit-level").value;
+  const tags = document.getElementById("kr-edit-tags").value.split(",").map(t => t.trim()).filter(Boolean);
+  const content = document.getElementById("kr-edit-content").value.trim();
+
+  const res = await fetch(`/api/v1/modules/korean_reading/passages/${passageId}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ title, level, tags, content }),
+  });
+  const data = await res.json();
+  if (!res.ok) return showMsg(data.detail || "지문 수정 실패", true);
+
+  closeEditReadingPassage();
+  showMsg("읽기 지문이 수정되었습니다.");
   loadAdminReadingPassages();
 }
 
@@ -587,13 +705,16 @@ async function loadAdminReadingPassages() {
   const list = await res.json();
   kreadingPassagesCache = list;
   container.innerHTML = list.map(p => `
-    <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px;">
+    <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
       <div>
         <span class="pos-badge">${p.level}</span>
         <strong style="margin-left:6px;">${p.title}</strong>
         <span style="font-size:12px; color:#64748b; margin-left:6px;">(${p.char_count}음절 · 작성자: ${p.author_name || "선생님"})</span>
       </div>
-      <button type="button" style="background:#dc2626; padding:6px 10px; font-size:12px;" onclick="deleteReadingPassage('${p.id}')">삭제</button>
+      <div style="display:flex; gap:6px;">
+        <button type="button" style="background:#0284c7; padding:6px 10px; font-size:12px;" onclick="openEditReadingPassage('${p.id}')">✏️ 수정</button>
+        <button type="button" style="background:#dc2626; padding:6px 10px; font-size:12px;" onclick="deleteReadingPassage('${p.id}')">삭제</button>
+      </div>
     </div>
   `).join("");
 }
@@ -602,7 +723,7 @@ async function deleteReadingPassage(passageId) {
   if (!confirm("이 지문과 연결된 기록을 삭제하시겠습니까?")) return;
   const res = await fetch(`/api/v1/modules/korean_reading/passages/${passageId}`, {
     method: "DELETE",
-    headers: getAuthHeaders(false)
+    headers: getAuthHeaders(false),
   });
   if (!res.ok) return showMsg("삭제 권한이 없거나 실패했습니다.", true);
   showMsg("지문이 삭제되었습니다.");
