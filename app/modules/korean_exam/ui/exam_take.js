@@ -361,85 +361,152 @@ async function retryExamFromAttempt(attemptId, retryMode) {
   _launchLoadedExamPaper(data);
 }
 
+function _normalizeExamTitleCompare(str) {
+  return String(str || "")
+    .replace(/\s+/g, "")
+    .replace(/[.?!~]+$/g, "")
+    .trim();
+}
+
 function renderExamPaper() {
   const container = document.getElementById("ke-sections-container");
-  container.innerHTML = currentExamPaper.sections.map((sec, sIdx) => {
-    const grp = sec.group_info;
-    const groupHeaderHtml = grp ? `
-      <div style="background:#f5f3ff; border:2px solid #c4b5fd; border-radius:8px; padding:14px; margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-          <strong style="color:#5b21b6; font-size:15px;">[${sec.range_label}] ${grp.instruction}</strong>
-          ${(grp.audio_url || grp.tts_text) ? `
-            <button type="button" style="background:#7c3aed; padding:5px 10px; font-size:12px;" onclick='playSingleMediaOrTTS("${grp.audio_url || ""}", ${JSON.stringify(grp.tts_text || "")})'>
-              ▶ 공통 지문 듣기
-            </button>` : ""}
-        </div>
-        ${grp.passage_text ? `<div style="margin-top:8px; padding:10px; background:#fff; border-radius:6px; font-size:14px; line-height:1.6; white-space:pre-line;">${grp.passage_text}</div>` : ""}
-        ${grp.image_url ? `<div style="margin-top:8px;"><img src="${grp.image_url}" style="max-width:100%; max-height:260px; border-radius:6px; border:1px solid #ddd6fe;" /></div>` : ""}
-      </div>
-    ` : "";
+  container.innerHTML = currentExamPaper.sections
+    .map((sec, sIdx) => {
+      const isGrouped = sec.section_type === "GROUP" && Boolean(sec.group_info);
+      const grp = isGrouped ? sec.group_info : null;
 
-    const questionsHtml = sec.questions.map((q, qIdx) => {
-      const hasAnyAudio = Boolean(
-        (grp && (grp.audio_url || grp.tts_text)) ||
-        q.audio_url || q.tts_text ||
-        (q.choices || []).some(c => c.audio_url || c.tts_text)
-      );
-
-      return `
-        <div class="word-card" style="background:#fff; margin-bottom:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
-            <div>
-              <span class="tag" style="background:#1e293b; color:#fff;">${q.display_no}번</span>
-              <span class="pos-badge">${q.level} · ${q.category}</span>
-              <span class="tag" style="background:#fef3c7; color:#92400e; margin-left:4px;">배점 ${q.points}점</span>
+      const groupHeaderHtml = grp
+        ? `
+          <div style="background:#f5f3ff; border:2px solid #c4b5fd; border-radius:8px; padding:14px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <strong style="color:#5b21b6; font-size:15px;">[${sec.range_label}] ${grp.instruction}</strong>
+              ${
+                grp.audio_url || grp.tts_text
+                  ? `<button type="button" style="background:#7c3aed; padding:5px 10px; font-size:12px;" onclick='playSingleMediaOrTTS("${grp.audio_url || ""}", ${JSON.stringify(grp.tts_text || "")})'>
+                      ▶ 공통 지문 듣기
+                    </button>`
+                  : ""
+              }
             </div>
-            ${hasAnyAudio ? `
-              <button type="button" style="background:#0284c7; padding:5px 10px; font-size:12px;" onclick="playQuestionSequence(${sIdx}, ${qIdx})">
-                ▶ 문항·보기 순차 듣기
-              </button>` : ""}
+            ${
+              grp.passage_text
+                ? `<div style="margin-top:8px; padding:10px; background:#fff; border-radius:6px; font-size:14px; line-height:1.6; white-space:pre-line;">${grp.passage_text}</div>`
+                : ""
+            }
+            ${
+              grp.image_url
+                ? `<div style="margin-top:8px;"><img src="${grp.image_url}" style="max-width:100%; max-height:260px; border-radius:6px; border:1px solid #ddd6fe;" /></div>`
+                : ""
+            }
           </div>
+        `
+        : "";
 
-          <div style="font-size:16px; font-weight:700; color:#0f172a; margin-bottom:8px;">${q.prompt_text}</div>
+      const questionsHtml = sec.questions
+        .map((q, qIdx) => {
+          const hasAnyAudio = Boolean(
+            (grp && (grp.audio_url || grp.tts_text)) ||
+              q.audio_url ||
+              q.tts_text ||
+              (q.choices || []).some(c => c.audio_url || c.tts_text)
+          );
 
-          ${q.passage_text ? `<div style="padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:14px; margin-bottom:10px; white-space:pre-line;">${q.passage_text}</div>` : ""}
-          ${q.image_url ? `<div style="margin-bottom:10px;"><img src="${q.image_url}" style="max-width:100%; max-height:240px; border-radius:6px; border:1px solid #cbd5e1;" /></div>` : ""}
+          // 그룹이 함께 출력될 때 그룹 제목 또는 지시문과 문제 제목(발문)이 일치하면 문제 제목 생략
+          const normPrompt = _normalizeExamTitleCompare(q.prompt_text);
+          const isSameAsGroup =
+            grp &&
+            normPrompt &&
+            (normPrompt === _normalizeExamTitleCompare(grp.title) ||
+              normPrompt === _normalizeExamTitleCompare(grp.instruction));
 
-          ${q.question_type === "MCQ" ? `
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-              ${(q.choices || []).map((ch, cIdx) => `
-                <div
-                  id="ke-choice-${q.question_id}-${ch.id}"
-                  onclick="selectExamChoice('${q.question_id}', '${ch.id}')"
-                  style="border:1px solid #cbd5e1; background:#f8fafc; border-radius:6px; padding:10px; cursor:pointer; transition:0.15s;"
-                >
-                  <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                    <span style="font-weight:700; font-size:14px;">${cIdx + 1}. ${ch.text || ""}</span>
-                    ${(ch.audio_url || ch.tts_text) ? `
-                      <button type="button" style="padding:3px 7px; font-size:11px; background:#475569;" onclick='event.stopPropagation(); stopAllExamAudio(); audioQueueCancelled=false; playSingleMediaOrTTS("${ch.audio_url || ""}", ${JSON.stringify(ch.tts_text || "")})'>
-                        🔊 듣기
-                      </button>` : ""}
-                  </div>
-                  ${ch.image_url ? `<img src="${ch.image_url}" style="max-width:100%; max-height:130px; margin-top:6px; border-radius:4px;" />` : ""}
+          const showPromptTitle = !isSameAsGroup && Boolean((q.prompt_text || "").trim());
+
+          return `
+            <div class="word-card" style="background:#fff; margin-bottom:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+                <div>
+                  <span class="tag" style="background:#1e293b; color:#fff;">${q.display_no}번</span>
+                  <span class="pos-badge">${q.level} · ${q.category}</span>
+                  <span class="tag" style="background:#fef3c7; color:#92400e; margin-left:4px;">배점 ${q.points}점</span>
                 </div>
-              `).join("")}
-            </div>
-          ` : `
-            <div>
-              <label>주관식 답안 입력</label>
-              <input
-                type="text"
-                placeholder="정답을 한국어로 입력하세요..."
-                oninput="updateExamShortAnswer('${q.question_id}', this.value)"
-              />
-            </div>
-          `}
-        </div>
-      `;
-    }).join("");
+                ${
+                  hasAnyAudio
+                    ? `<button type="button" style="background:#0284c7; padding:5px 10px; font-size:12px;" onclick="playQuestionSequence(${sIdx}, ${qIdx})">
+                        ▶ 문항·보기 순차 듣기
+                      </button>`
+                    : ""
+                }
+              </div>
 
-    return `<div style="margin-bottom:20px;">${groupHeaderHtml}${questionsHtml}</div>`;
-  }).join("");
+              ${
+                showPromptTitle
+                  ? `<div style="font-size:16px; font-weight:700; color:#0f172a; margin-bottom:8px;">${q.prompt_text}</div>`
+                  : ""
+              }
+
+              ${
+                q.passage_text
+                  ? `<div style="padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:14px; margin-bottom:10px; white-space:pre-line;">${q.passage_text}</div>`
+                  : ""
+              }
+              ${
+                q.image_url
+                  ? `<div style="margin-bottom:10px;"><img src="${q.image_url}" style="max-width:100%; max-height:240px; border-radius:6px; border:1px solid #cbd5e1;" /></div>`
+                  : ""
+              }
+
+              ${
+                q.question_type === "MCQ"
+                  ? `
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                      ${(q.choices || [])
+                        .map(
+                          (ch, cIdx) => `
+                          <div
+                            id="ke-choice-${q.question_id}-${ch.id}"
+                            onclick="selectExamChoice('${q.question_id}', '${ch.id}')"
+                            style="border:1px solid #cbd5e1; background:#f8fafc; border-radius:6px; padding:10px; cursor:pointer; transition:0.15s;"
+                          >
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                              <span style="font-weight:700; font-size:14px;">${cIdx + 1}. ${ch.text || ""}</span>
+                              ${
+                                ch.audio_url || ch.tts_text
+                                  ? `<button type="button" style="padding:3px 7px; font-size:11px; background:#475569;" onclick='event.stopPropagation(); stopAllExamAudio(); audioQueueCancelled=false; playSingleMediaOrTTS("${ch.audio_url || ""}", ${JSON.stringify(ch.tts_text || "")})'>
+                                      🔊 듣기
+                                    </button>`
+                                  : ""
+                              }
+                            </div>
+                            ${
+                              ch.image_url
+                                ? `<img src="${ch.image_url}" style="max-width:100%; max-height:130px; margin-top:6px; border-radius:4px;" />`
+                                : ""
+                            }
+                          </div>
+                        `
+                        )
+                        .join("")}
+                    </div>
+                  `
+                  : `
+                    <div>
+                      <label>주관식 답안 입력</label>
+                      <input
+                        type="text"
+                        placeholder="정답을 한국어로 입력하세요..."
+                        oninput="updateExamShortAnswer('${q.question_id}', this.value)"
+                      />
+                    </div>
+                  `
+              }
+            </div>
+          `;
+        })
+        .join("");
+
+      return `<div style="margin-bottom:20px;">${groupHeaderHtml}${questionsHtml}</div>`;
+    })
+    .join("");
 }
 
 function selectExamChoice(questionId, choiceId) {
