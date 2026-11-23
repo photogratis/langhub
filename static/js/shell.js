@@ -395,7 +395,7 @@ async function openModule(moduleId) {
     }
 
     if (ui.init_fn && typeof window[ui.init_fn] === "function") {
-      await window[ui.init_fn]();
+      await window[ui.init_fn](moduleId);
     }
   } catch (err) {
     console.error(err);
