@@ -1,226 +1,446 @@
+/* =========================================================
+   static/js/shell.js
+   - 전역 상태 관리 (currentUser, availableMenus, currentSiteLang)
+   - 한국어(ko) / 인도네시아어(id) 다국어 전환 및 도구 디렉터리 렌더링
+   - 동적 모듈 로더 (HTML + JS 자동 주입 및 초기화)
+   - 코어 뷰(auth / admin) 로더 및 공통 유틸 함수
+========================================================= */
+
 var currentUser = null;
 var availableMenus = [];
-const loadedScripts = new Set();
+var activeModuleId = null;
 
+// 현재 선택 언어 ('ko' 또는 'id')
+var currentSiteLang =
+  localStorage.getItem("site_lang") ||
+  ((navigator.language || "").toLowerCase().startsWith("id") ? "id" : "ko");
+
+const SHELL_I18N = {
+  ko: {
+    dir_title: "학습 도구 목록",
+    dir_subtitle: "원하는 한국어·인도네시아어 학습 도구를 선택하세요.",
+    search_placeholder: "도구 이름 또는 설명 검색...",
+    open_tool_btn: "도구 열기",
+    badge_public: "누구나 이용",
+    badge_member: "회원 전용",
+    badge_grade: "등급 제한",
+    empty_tools: "표시할 학습 도구가 없습니다.",
+    nav_tools: "학습 도구",
+    nav_admin_staff: "관리자 · 내 정보",
+    nav_admin_user: "내 정보",
+    nav_login: "로그인 / 가입",
+    nav_logout: "로그아웃",
+    back_to_tools: "← 도구 목록으로",
+    login_required_module: "이 도구를 사용하려면 로그인이 필요합니다.",
+    grade_restricted_module: "현재 회원 등급으로는 접근할 수 없는 도구입니다.",
+    module_load_error: "도구 화면을 불러오는 중 오류가 발생했습니다.",
+    logged_out_msg: "로그아웃되었습니다.",
+  },
+  id: {
+    dir_title: "Daftar Alat Belajar",
+    dir_subtitle: "Pilih alat pembelajaran bahasa Korea & Indonesia yang ingin Anda gunakan.",
+    search_placeholder: "Cari nama atau deskripsi alat...",
+    open_tool_btn: "Buka Alat",
+    badge_public: "Umum (Gratis)",
+    badge_member: "Khusus Anggota",
+    badge_grade: "Khusus Tingkat",
+    empty_tools: "Tidak ada alat belajar yang tersedia.",
+    nav_tools: "Alat Belajar",
+    nav_admin_staff: "Admin · Profil",
+    nav_admin_user: "Profil Saya",
+    nav_login: "Masuk / Daftar",
+    nav_logout: "Keluar",
+    back_to_tools: "← Kembali ke Daftar Alat",
+    login_required_module: "Silakan masuk terlebih dahulu untuk menggunakan alat ini.",
+    grade_restricted_module: "Tingkat keanggotaan Anda tidak memiliki akses ke alat ini.",
+    module_load_error: "Terjadi kesalahan saat memuat alat belajar.",
+    logged_out_msg: "Anda telah keluar.",
+  },
+};
+
+function tShell(key) {
+  const dict = SHELL_I18N[currentSiteLang] || SHELL_I18N.ko;
+  return dict[key] || SHELL_I18N.ko[key] || key;
+}
+
+/* =========================================================
+   [공통 유틸: 인증 헤더 / 알림 메시지 / 페이지네이션]
+========================================================= */
 function getAuthHeaders(includeJson = true) {
   const headers = {};
-  if (includeJson) headers["Content-Type"] = "application/json";
+  if (includeJson) {
+    headers["Content-Type"] = "application/json";
+  }
   const token = localStorage.getItem("access_token");
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   return headers;
 }
 
 function showMsg(text, isError = false) {
-  const el = document.getElementById("message");
+  const el = document.getElementById("global-msg");
   if (!el) return;
   el.textContent = text;
-  el.className = "msg " + (isError ? "error" : "success");
+  el.classList.remove("hidden", "error");
+  if (isError) el.classList.add("error");
 }
 
 function clearMsg() {
-  const el = document.getElementById("message");
+  const el = document.getElementById("global-msg");
   if (!el) return;
   el.textContent = "";
-  el.className = "msg";
+  el.classList.add("hidden");
+  el.classList.remove("error");
 }
 
 function renderPaginationBar(currentPage, totalPages, callbackFnName) {
-  if (!totalPages || totalPages <= 1) return "";
-  const maxVisible = 5;
-  let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-  let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-  if (endPage - startPage + 1 < maxVisible) {
-    startPage = Math.max(1, endPage - maxVisible + 1);
+  if (totalPages <= 1) return "";
+  let html = `<div style="display:flex; justify-content:center; gap:6px; margin-top:14px; flex-wrap:wrap;">`;
+  for (let p = 1; p <= totalPages; p++) {
+    const isCurrent = p === currentPage;
+    html += `
+      <button type="button"
+        class="${isCurrent ? "" : "secondary"}"
+        style="padding:5px 10px; font-size:12.5px;"
+        onclick="${callbackFnName}(${p})">
+        ${p}
+      </button>
+    `;
   }
-
-  let html = `<div class="pagination-bar">`;
-  html += `<button type="button" class="page-btn" ${currentPage <= 1 ? "disabled" : ""} onclick="${callbackFnName}(1)">« 처음</button>`;
-  html += `<button type="button" class="page-btn" ${currentPage <= 1 ? "disabled" : ""} onclick="${callbackFnName}(${currentPage - 1})">‹ 이전</button>`;
-  for (let p = startPage; p <= endPage; p++) {
-    html += `<button type="button" class="page-btn ${p === currentPage ? "active" : ""}" onclick="${callbackFnName}(${p})">${p}</button>`;
-  }
-  html += `<button type="button" class="page-btn" ${currentPage >= totalPages ? "disabled" : ""} onclick="${callbackFnName}(${currentPage + 1})">다음 ›</button>`;
-  html += `<button type="button" class="page-btn" ${currentPage >= totalPages ? "disabled" : ""} onclick="${callbackFnName}(${totalPages})">끝 »</button>`;
   html += `</div>`;
   return html;
 }
 
-// 외부 HTML 조각 + JS 스크립트를 동적으로 로드해 #app-mount-point에 마운트하는 범용 엔진
-async function mountFragment({ htmlUrl, jsUrl, cssUrl, initFn, initArg, wrapperPrefix = "" }) {
-  clearMsg();
-  const mount = document.getElementById("app-mount-point");
-  const cacheBuster = `?v=${Date.now()}`;
+/* =========================================================
+   [다국어 전환 및 상단 헤더 업데이트]
+========================================================= */
+function setSiteLanguage(lang) {
+  currentSiteLang = lang === "id" ? "id" : "ko";
+  localStorage.setItem("site_lang", currentSiteLang);
+  document.documentElement.lang = currentSiteLang;
 
-  try {
-    if (cssUrl && !document.querySelector(`link[data-frag-css="${cssUrl}"]`)) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = cssUrl + cacheBuster;
-      link.setAttribute("data-frag-css", cssUrl);
-      document.head.appendChild(link);
-    }
+  const sel = document.getElementById("site-lang-select");
+  if (sel) sel.value = currentSiteLang;
 
-    const res = await fetch(htmlUrl + cacheBuster);
-    if (!res.ok) throw new Error(`UI 파일을 불러오지 못했습니다. (${htmlUrl})`);
-    mount.innerHTML = wrapperPrefix + (await res.text());
-
-    if (jsUrl && !loadedScripts.has(jsUrl)) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = jsUrl + cacheBuster;
-        script.onload = () => {
-          loadedScripts.add(jsUrl);
-          resolve();
-        };
-        script.onerror = () => reject(new Error(`스크립트를 불러오지 못했습니다. (${jsUrl})`));
-        document.body.appendChild(script);
-      });
-    }
-
-    if (initFn && typeof window[initFn] === "function") {
-      await window[initFn](initArg);
-    }
-  } catch (err) {
-    mount.innerHTML = `<div class="card" style="color:#b91c1c;">화면 로드 오류: ${err.message}</div>`;
-  }
-}
-
-// 코어 기본 뷰(auth, admin) 열기 -> /static/base/auth/auth.html, /static/base/admin/admin.html
-function openBaseView(pkgName, initArg) {
-  const initMap = { auth: "initAuthView", admin: "initAdminView" };
-  return mountFragment({
-    htmlUrl: `/static/base/${pkgName}/${pkgName}.html`,
-    jsUrl: `/static/base/${pkgName}/${pkgName}.js`,
-    initFn: initMap[pkgName],
-    initArg
-  });
-}
-
-// 확장 도구(module) 열기
-async function openModule(moduleId) {
-  const meta = availableMenus.find(m => m.module_id === moduleId);
-  if (!meta || !meta.ui) return;
-
-  const assetMod = meta.ui.asset_module || moduleId;
-  await mountFragment({
-    htmlUrl: `/static/modules/${assetMod}/${meta.ui.html}`,
-    jsUrl: meta.ui.js ? `/static/modules/${assetMod}/${meta.ui.js}` : null,
-    cssUrl: meta.ui.css ? `/static/modules/${assetMod}/${meta.ui.css}` : null,
-    initFn: meta.ui.init_fn,
-    initArg: moduleId,
-    wrapperPrefix: `
-      <div style="margin-bottom:10px;">
-        <button type="button" class="secondary" style="padding:6px 12px; font-size:12px;" onclick="openToolsDirectory()">← 도구 목록으로 돌아가기</button>
-      </div>`
-  });
-
-  const titleEl = document.querySelector("#app-mount-point h2");
-  if (titleEl && meta.name) titleEl.textContent = meta.name;
-}
-
-async function fetchToolsList() {
-  try {
-    const res = await fetch("/api/v1/modules/menu", { headers: getAuthHeaders(false) });
-    if (!res.ok) return [];
-    availableMenus = await res.json();
-    return availableMenus.filter(m => m.ui);
-  } catch {
-    return [];
-  }
-}
-
-async function openToolsDirectory() {
-  clearMsg();
-  await fetchToolsList();
-  const mount = document.getElementById("app-mount-point");
-  mount.innerHTML = `
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div>
-          <h2 style="margin:0;">언어 교육 도구</h2>
-          <p style="font-size:13px; color:#64748b; margin:4px 0 0 0;">사용할 학습 도구를 선택하세요.</p>
-        </div>
-        <div style="min-width:240px;">
-          <input type="text" id="tools-search-input" placeholder="도구 이름 또는 설명 검색..." oninput="renderToolsDirectory()" />
-        </div>
-      </div>
-      <div id="tools-grid-container" class="tools-grid"></div>
-    </div>`;
+  applyShellLanguage();
   renderToolsDirectory();
+
+  // 현재 개별 모듈이 열려 있는 상태라면 상단 모듈 제목도 선택 언어로 갱신
+  if (activeModuleId) {
+    const menu = availableMenus.find(m => m.module_id === activeModuleId);
+    const titleEl = document.getElementById("active-module-title");
+    if (menu && titleEl) {
+      titleEl.textContent =
+        currentSiteLang === "id" ? menu.name_id || menu.name : menu.name;
+    }
+  }
 }
 
-function renderToolsDirectory() {
-  const container = document.getElementById("tools-grid-container");
-  if (!container) return;
-  const keyword = (document.getElementById("tools-search-input")?.value || "").trim().toLowerCase();
-  const labelMap = { PUBLIC: "누구나 사용", MEMBER: "회원 전용", GRADE: "등급 제한" };
-  const badgeColorMap = {
-    PUBLIC: "background:#dcfce7; color:#166534;",
-    MEMBER: "background:#dbeafe; color:#1e40af;",
-    GRADE: "background:#f3e8ff; color:#6b21a8;"
+function applyShellLanguage() {
+  const textMap = {
+    "nav-btn-tools": "nav_tools",
+    "nav-btn-login": "nav_login",
+    "nav-btn-logout": "nav_logout",
+    "tools-dir-title": "dir_title",
+    "tools-dir-subtitle": "dir_subtitle",
+    "btn-back-to-tools": "back_to_tools",
+    "btn-back-from-base": "back_to_tools",
   };
+  Object.entries(textMap).forEach(([elId, key]) => {
+    const el = document.getElementById(elId);
+    if (el) el.textContent = tShell(key);
+  });
 
-  const uiTools = availableMenus.filter(m =>
-    m.ui && (!keyword || (m.name || "").toLowerCase().includes(keyword) || (m.description || "").toLowerCase().includes(keyword))
-  );
+  const adminBtn = document.getElementById("nav-btn-admin");
+  if (adminBtn) {
+    const isAdmin = currentUser && currentUser.grade === "ADMIN";
+    adminBtn.textContent = isAdmin
+      ? tShell("nav_admin_staff")
+      : tShell("nav_admin_user");
+  }
 
-  container.innerHTML = uiTools.length
-    ? uiTools.map(tool => `
-        <div class="tool-card" onclick="openModule('${tool.module_id}')">
-          <div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px;">
-              <div class="tool-card-title">${tool.name}</div>
-              <span class="tag" style="${badgeColorMap[tool.access_type] || ""}; white-space:nowrap;">${labelMap[tool.access_type] || tool.access_type}</span>
-            </div>
-            <div class="tool-card-desc">${tool.description || "설명이 등록되지 않은 언어 교육 도구입니다."}</div>
-          </div>
-          <div style="font-size:12px; font-weight:700; color:#2563eb;">도구 열기 →</div>
-        </div>`).join("")
-    : `<p style="color:#64748b; grid-column:1/-1; text-align:center; padding:24px;">표시할 학습 도구가 없습니다.</p>`;
+  const searchInput = document.getElementById("tools-dir-search");
+  if (searchInput) searchInput.placeholder = tShell("search_placeholder");
 }
 
+/* =========================================================
+   [로그인 사용자 상태 확인 & 로그아웃]
+========================================================= */
 async function checkCurrentUser() {
   const token = localStorage.getItem("access_token");
   if (!token) {
     currentUser = null;
-  } else {
-    try {
-      const res = await fetch("/api/v1/auth/me", { headers: getAuthHeaders(false) });
-      currentUser = res.ok ? await res.json() : null;
-      if (!res.ok) localStorage.removeItem("access_token");
-    } catch {
+    updateAuthNavUI();
+    return null;
+  }
+
+  try {
+    const res = await fetch("/api/v1/auth/me", {
+      headers: getAuthHeaders(false),
+    });
+    if (res.ok) {
+      currentUser = await res.json();
+    } else {
+      localStorage.removeItem("access_token");
       currentUser = null;
     }
+  } catch (e) {
+    currentUser = null;
   }
 
-  const navRight = document.getElementById("nav-user-area");
+  updateAuthNavUI();
+  return currentUser;
+}
+
+function updateAuthNavUI() {
+  const badgeEl = document.getElementById("nav-user-badge");
+  const adminBtn = document.getElementById("nav-btn-admin");
+  const logoutBtn = document.getElementById("nav-btn-logout");
+  const loginBtn = document.getElementById("nav-btn-login");
+
   if (currentUser) {
-    const isAdmin = currentUser.grade === "ADMIN";
-    navRight.innerHTML = `
-      <span style="font-size:13px;">${currentUser.nickname} (${currentUser.grade})</span>
-      <button class="menu-btn" onclick="openBaseView('admin', 'profile')">${isAdmin ? "관리자 / 내 정보" : "마이페이지"}</button>
-      <button class="menu-btn" onclick="handleLogout()">로그아웃</button>`;
+    if (badgeEl) {
+      badgeEl.textContent = `${currentUser.nickname} (${currentUser.grade})`;
+      badgeEl.classList.remove("hidden");
+    }
+    if (adminBtn) {
+      adminBtn.classList.remove("hidden");
+      adminBtn.textContent =
+        currentUser.grade === "ADMIN"
+          ? tShell("nav_admin_staff")
+          : tShell("nav_admin_user");
+    }
+    if (logoutBtn) logoutBtn.classList.remove("hidden");
+    if (loginBtn) loginBtn.classList.add("hidden");
   } else {
-    navRight.innerHTML = `<button class="menu-btn" onclick="openBaseView('auth')">로그인 / 회원가입</button>`;
+    if (badgeEl) badgeEl.classList.add("hidden");
+    if (adminBtn) adminBtn.classList.add("hidden");
+    if (logoutBtn) logoutBtn.classList.add("hidden");
+    if (loginBtn) loginBtn.classList.remove("hidden");
   }
 }
 
-function handleLogout() {
+async function handleLogout() {
   localStorage.removeItem("access_token");
-  checkCurrentUser();
-  openToolsDirectory();
-  showMsg("로그아웃 되었습니다.");
+  currentUser = null;
+  updateAuthNavUI();
+  await fetchToolsList();
+  await openToolsDirectory();
+  showMsg(tShell("logged_out_msg"));
 }
 
-(async function init() {
+/* =========================================================
+   [도구 목록 API 조회 및 다국어 디렉터리 렌더링]
+========================================================= */
+async function fetchToolsList() {
+  try {
+    const res = await fetch("/api/v1/modules/menu", {
+      headers: getAuthHeaders(false),
+    });
+    if (res.ok) {
+      availableMenus = await res.json();
+    } else {
+      availableMenus = [];
+    }
+  } catch (e) {
+    console.error("메뉴 로드 오류:", e);
+    availableMenus = [];
+  }
+  return availableMenus;
+}
+
+function hideAllShellSections() {
+  document.getElementById("view-tools-directory")?.classList.add("hidden");
+  document.getElementById("view-module-runner")?.classList.add("hidden");
+  document.getElementById("view-base-container")?.classList.add("hidden");
+}
+
+async function openToolsDirectory() {
+  clearMsg();
+  activeModuleId = null;
+  hideAllShellSections();
+  document.getElementById("view-tools-directory")?.classList.remove("hidden");
+
+  if (!availableMenus.length) {
+    await fetchToolsList();
+  }
+  renderToolsDirectory();
+}
+
+function renderToolsDirectory() {
+  const container = document.getElementById("tools-directory-list");
+  if (!container) return;
+
+  const keyword = (document.getElementById("tools-dir-search")?.value || "")
+    .trim()
+    .toLowerCase();
+  const isId = currentSiteLang === "id";
+
+  const filtered = (availableMenus || []).filter(m => {
+    const title = isId ? m.name_id || m.name : m.name;
+    const desc = isId ? m.description_id || m.description : m.description;
+    return (
+      !keyword ||
+      (title || "").toLowerCase().includes(keyword) ||
+      (desc || "").toLowerCase().includes(keyword) ||
+      (m.module_id || "").toLowerCase().includes(keyword)
+    );
+  });
+
+  if (!filtered.length) {
+    container.innerHTML = `<p style="color:#64748b; text-align:center; padding:28px; grid-column:1/-1;">${tShell("empty_tools")}</p>`;
+    return;
+  }
+
+  container.innerHTML = filtered
+    .map(m => {
+      const displayTitle = isId ? m.name_id || m.name : m.name;
+      const displayDesc = isId
+        ? m.description_id || m.description
+        : m.description;
+
+      let accessLabel = tShell("badge_public");
+      let badgeStyle = "background:#dcfce7; color:#166534;";
+      if (m.access_type === "MEMBER") {
+        accessLabel = tShell("badge_member");
+        badgeStyle = "background:#dbeafe; color:#1e40af;";
+      } else if (m.access_type === "GRADE") {
+        accessLabel = tShell("badge_grade");
+        badgeStyle = "background:#fef3c7; color:#92400e;";
+      }
+
+      return `
+        <div class="tool-card">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:10px;">
+              <strong style="font-size:17px; color:#0f172a; line-height:1.35;">${displayTitle}</strong>
+              <span class="tag" style="font-size:11.5px; white-space:nowrap; ${badgeStyle}">${accessLabel}</span>
+            </div>
+            <p style="font-size:13.5px; color:#475569; margin:0; line-height:1.55;">
+              ${displayDesc || ""}
+            </p>
+          </div>
+          <button type="button" style="width:100%; padding:10px;" onclick="openModule('${m.module_id}')">
+            ${tShell("open_tool_btn")}
+          </button>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+/* =========================================================
+   [스크립트 동적 로더 유틸]
+========================================================= */
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-dynamic-src="${src}"]`);
+    if (existing) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = `${src}?v=${Date.now()}`;
+    script.dataset.dynamicSrc = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.body.appendChild(script);
+  });
+}
+
+/* =========================================================
+   [개별 학습 모듈 실행기]
+========================================================= */
+async function openModule(moduleId) {
+  clearMsg();
+  if (!availableMenus.length) {
+    await fetchToolsList();
+  }
+
+  const menu = availableMenus.find(m => m.module_id === moduleId);
+  if (!menu) {
+    return showMsg(tShell("module_load_error"), true);
+  }
+
+  // 비회원 접근 제한 사전 안내
+  if ((menu.access_type === "MEMBER" || menu.access_type === "GRADE") && !currentUser) {
+    showMsg(tShell("login_required_module"), true);
+    return openBaseView("auth");
+  }
+
+  activeModuleId = moduleId;
+  hideAllShellSections();
+  document.getElementById("view-module-runner")?.classList.remove("hidden");
+
+  const titleEl = document.getElementById("active-module-title");
+  if (titleEl) {
+    titleEl.textContent =
+      currentSiteLang === "id" ? menu.name_id || menu.name : menu.name;
+  }
+
+  const mountEl = document.getElementById("module-mount-area");
+  const ui = menu.ui || {};
+  const assetMod = ui.asset_module || moduleId;
+  const htmlFile = ui.html || "widget.html";
+  const jsFiles = Array.isArray(ui.js) ? ui.js : ui.js ? [ui.js] : ["widget.js"];
+
+  try {
+    const htmlRes = await fetch(`/static/modules/${assetMod}/${htmlFile}?v=${Date.now()}`);
+    if (!htmlRes.ok) throw new Error("Widget HTML not found");
+    mountEl.innerHTML = await htmlRes.text();
+
+    for (const jsFile of jsFiles) {
+      await loadScriptOnce(`/static/modules/${assetMod}/${jsFile}`);
+    }
+
+    if (ui.init_fn && typeof window[ui.init_fn] === "function") {
+      await window[ui.init_fn]();
+    }
+  } catch (err) {
+    console.error(err);
+    mountEl.innerHTML = `<p style="color:#b91c1c; padding:20px;">${tShell("module_load_error")}</p>`;
+  }
+}
+
+/* =========================================================
+   [코어 기본 뷰 로더 (auth / admin)]
+========================================================= */
+async function openBaseView(pkgName) {
+  clearMsg();
+  activeModuleId = null;
+  hideAllShellSections();
+  document.getElementById("view-base-container")?.classList.remove("hidden");
+
+  const mountEl = document.getElementById("base-mount-area");
+  try {
+    const htmlRes = await fetch(`/static/base/${pkgName}/${pkgName}.html?v=${Date.now()}`);
+    if (!htmlRes.ok) throw new Error(`${pkgName}.html not found`);
+    mountEl.innerHTML = await htmlRes.text();
+
+    await loadScriptOnce(`/static/base/${pkgName}/${pkgName}.js`);
+
+    if (pkgName === "auth" && typeof initAuthView === "function") {
+      initAuthView();
+    } else if (pkgName === "admin" && typeof initAdminView === "function") {
+      await initAdminView("profile");
+    }
+  } catch (err) {
+    console.error(err);
+    mountEl.innerHTML = `<p style="color:#b91c1c; padding:20px;">화면을 불러오지 못했습니다.</p>`;
+  }
+}
+
+/* =========================================================
+   [앱 최초 초기화]
+========================================================= */
+document.addEventListener("DOMContentLoaded", async () => {
+  const sel = document.getElementById("site-lang-select");
+  if (sel) sel.value = currentSiteLang;
+  document.documentElement.lang = currentSiteLang;
+
+  applyShellLanguage();
   await checkCurrentUser();
   await fetchToolsList();
-
-  const urlParams = new URLSearchParams(window.location.search);
-  const directModule = urlParams.get("module");
-  if (directModule && availableMenus.some(m => m.module_id === directModule && m.ui)) {
-    await openModule(directModule);
-  } else {
-    await openToolsDirectory();
-  }
-})();
+  await openToolsDirectory();
+});

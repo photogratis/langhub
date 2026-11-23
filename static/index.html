@@ -3,25 +3,181 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LangHuv - 언어 교육 도구 플랫폼</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=10" />
+  <title>LangHuv - 한국어 · 인도네시아어 학습 플랫폼</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    /* 다국어 쉘 & 도구 디렉터리 보완 스타일 */
+    .shell-header {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+    }
+    .shell-brand {
+      font-size: 20px;
+      font-weight: 900;
+      color: #ffffff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: -0.3px;
+    }
+    .shell-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .shell-lang-select {
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      width: auto;
+    }
+    .shell-container {
+      max-width: 1120px;
+      margin: 22px auto;
+      padding: 0 16px 48px 16px;
+    }
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .tool-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .tool-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    }
+    .global-toast {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+    }
+    .global-toast.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
 </head>
 <body>
+  <!-- 상단 공통 내비게이션 헤더 -->
+  <header class="shell-header">
+    <div class="shell-brand" onclick="openToolsDirectory()">
+      <span>🌐 LangHuv</span>
+    </div>
 
-<header>
-  <div class="nav-left">
-    <span class="brand" onclick="openToolsDirectory()">LangHuv</span>
-    <button type="button" class="menu-btn primary-nav" onclick="openToolsDirectory()">도구</button>
-  </div>
-  <div class="nav-right" id="nav-user-area"></div>
-</header>
+    <nav class="shell-nav">
+      <!-- 언어 선택기 (한국어 / 인도네시아어) -->
+      <select id="site-lang-select" class="shell-lang-select" onchange="setSiteLanguage(this.value)" aria-label="Language">
+        <option value="ko">🇰🇷 한국어</option>
+        <option value="id">🇮🇩 Bahasa Indonesia</option>
+      </select>
 
-<div class="container">
-  <div id="message" class="msg"></div>
-  <!-- 모든 화면(도구 목록, 개별 도구, 인증, 관리자)이 동적으로 렌더링되는 단일 컨테이너 -->
-  <div id="app-mount-point"></div>
-</div>
+      <button type="button" id="nav-btn-tools" onclick="openToolsDirectory()">학습 도구</button>
 
-<script src="/static/js/shell.js?v=16"></script>
+      <!-- 로그인 상태일 때 표시 -->
+      <span id="nav-user-badge" class="hidden" style="font-size:13px; color:#cbd5e1; padding:0 4px;"></span>
+      <button type="button" id="nav-btn-admin" class="secondary hidden" onclick="openBaseView('admin')">내 정보 · 관리</button>
+      <button type="button" id="nav-btn-logout" class="secondary hidden" onclick="handleLogout()">로그아웃</button>
+
+      <!-- 비로그인 상태일 때 표시 -->
+      <button type="button" id="nav-btn-login" class="secondary" onclick="openBaseView('auth')">로그인 / 가입</button>
+    </nav>
+  </header>
+
+  <main class="shell-container">
+    <!-- 전역 알림 메시지 영역 -->
+    <div id="global-msg" class="global-toast hidden"></div>
+
+    <!-- =====================================================
+         1. 도구 목록 디렉터리 뷰 (메인 홈)
+    ====================================================== -->
+    <section id="view-tools-directory">
+      <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <h2 id="tools-dir-title" style="margin:0 0 6px 0; font-size:22px; color:#0f172a;">학습 도구 목록</h2>
+            <p id="tools-dir-subtitle" style="margin:0; font-size:14px; color:#475569;">
+              원하는 한국어·인도네시아어 학습 도구를 선택하세요.
+            </p>
+          </div>
+          <div style="min-width:260px; flex:1; max-width:360px;">
+            <input
+              type="text"
+              id="tools-dir-search"
+              placeholder="도구 이름 또는 설명 검색..."
+              oninput="renderToolsDirectory()"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div id="tools-directory-list" class="tools-grid"></div>
+    </section>
+
+    <!-- =====================================================
+         2. 개별 학습 모듈 실행 뷰
+    ====================================================== -->
+    <section id="view-module-runner" class="hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+        <div>
+          <button type="button" id="btn-back-to-tools" class="secondary" onclick="openToolsDirectory()">
+            ← 도구 목록으로
+          </button>
+        </div>
+        <h2 id="active-module-title" style="margin:0; font-size:20px; color:#0f172a;"></h2>
+      </div>
+      <div id="module-mount-area"></div>
+    </section>
+
+    <!-- =====================================================
+         3. 코어 기본 뷰 (로그인/가입, 관리자/내정보)
+    ====================================================== -->
+    <section id="view-base-container" class="hidden">
+      <div style="margin-bottom:14px;">
+        <button type="button" id="btn-back-from-base" class="secondary" onclick="openToolsDirectory()">
+          ← 도구 목록으로
+        </button>
+      </div>
+      <div id="base-mount-area"></div>
+    </section>
+  </main>
+
+  <script src="/static/js/shell.js"></script>
 </body>
 </html>
