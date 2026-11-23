@@ -22,8 +22,8 @@ def _build_exam_sections_from_questions(
     preserve_exact_order: bool = False,
 ) -> list:
     """
-    문항 리스트를 그룹 단위로 묶고 사지선다 보기를 셔플하여 시험지 섹션 구조로 변환.
-    points_override_map이 있으면 시험지 제작자가 지정한 문항별 커스텀 배점을 우선 적용.
+    문항 리스트를 그룹 단위로 묶되, 같은 그룹 문항이 2개 이상 함께 출제될 때만 GROUP 섹션으로 묶고
+    1문항만 단독으로 출제될 경우(예: 오답 재시험 등)에는 SINGLE 섹션으로 처리합니다.
     """
     units: List[dict] = []
     seen_groups: Dict[str, dict] = {}
@@ -47,6 +47,11 @@ def _build_exam_sections_from_questions(
         if not preserve_exact_order:
             unit["questions"].sort(key=lambda x: x.get("order_in_group", 1))
 
+        grp = unit["group"]
+        # 그룹 문항이 1개만 단독으로 나온 경우 SINGLE 섹션으로 전환
+        is_grouped_together = bool(grp and len(unit["questions"]) >= 2)
+        section_type = "GROUP" if is_grouped_together else "SINGLE"
+
         formatted_qs = []
         for q in unit["questions"]:
             qid_str = str(q["id"])
@@ -60,6 +65,26 @@ def _build_exam_sections_from_questions(
                 else q.get("points", 10)
             )
 
+            # 단독 출력(SINGLE) 전환 시 그룹에만 있던 지문/미디어가 유실되지 않도록 병합
+            passage_text = q.get("passage_text", "")
+            image_url = q.get("image_url", "")
+            audio_url = q.get("audio_url", "")
+            tts_text = q.get("tts_text", "")
+
+            if grp and not is_grouped_together:
+                if grp.get("passage_text"):
+                    passage_text = (
+                        f"{grp['passage_text'].strip()}\n\n{passage_text.strip()}".strip()
+                        if passage_text.strip()
+                        else grp["passage_text"].strip()
+                    )
+                if not image_url and grp.get("image_url"):
+                    image_url = grp["image_url"]
+                if not audio_url and grp.get("audio_url"):
+                    audio_url = grp["audio_url"]
+                if not tts_text and grp.get("tts_text"):
+                    tts_text = grp["tts_text"]
+
             formatted_qs.append({
                 "display_no": display_no,
                 "question_id": qid_str,
@@ -68,20 +93,19 @@ def _build_exam_sections_from_questions(
                 "category": q.get("category", ""),
                 "points": custom_pts,
                 "prompt_text": q["prompt_text"],
-                "passage_text": q.get("passage_text", ""),
-                "image_url": q.get("image_url", ""),
-                "audio_url": q.get("audio_url", ""),
-                "tts_text": q.get("tts_text", ""),
+                "passage_text": passage_text,
+                "image_url": image_url,
+                "audio_url": audio_url,
+                "tts_text": tts_text,
                 "choices": choices,
             })
             display_no += 1
 
-        grp = unit["group"]
         start_no = formatted_qs[0]["display_no"]
         end_no = formatted_qs[-1]["display_no"]
 
         exam_sections.append({
-            "section_type": unit["type"],
+            "section_type": section_type,
             "range_label": f"{start_no}~{end_no}번" if start_no != end_no else f"{start_no}번",
             "group_info": {
                 "id": str(grp["id"]),
@@ -91,12 +115,11 @@ def _build_exam_sections_from_questions(
                 "image_url": grp.get("image_url", ""),
                 "audio_url": grp.get("audio_url", ""),
                 "tts_text": grp.get("tts_text", ""),
-            } if grp else None,
+            } if is_grouped_together else None,
             "questions": formatted_qs,
         })
 
     return exam_sections
-
 
 def generate_exam_from_paper(paper_id: str) -> dict:
     """
