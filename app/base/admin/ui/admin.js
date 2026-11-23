@@ -128,9 +128,12 @@ function renderAdminModulesPage(page = 1) {
   const pageSize = parseInt(document.getElementById("admin-mod-pagesize")?.value || "10", 10);
 
   let filtered = adminCachedModules.filter(m => {
-    const matchText = !keyword ||
+    const matchText =
+      !keyword ||
       (m.name || "").toLowerCase().includes(keyword) ||
       (m.description || "").toLowerCase().includes(keyword) ||
+      (m.name_id || "").toLowerCase().includes(keyword) ||
+      (m.description_id || "").toLowerCase().includes(keyword) ||
       m.module_id.toLowerCase().includes(keyword);
     const matchStatus = statusFilter === "ALL" || (statusFilter === "ON" ? m.is_enabled : !m.is_enabled);
     return matchText && matchStatus;
@@ -143,7 +146,8 @@ function renderAdminModulesPage(page = 1) {
   const start = (currentAdminModPage - 1) * pageSize;
   const pagedItems = filtered.slice(start, start + pageSize);
 
-  document.getElementById("admin-mod-summary").innerHTML = `전체 <b>${total}</b>개 도구 (${currentAdminModPage} / ${totalPages} 페이지)`;
+  document.getElementById("admin-mod-summary").innerHTML =
+    `전체 <b>${total}</b>개 도구 (${currentAdminModPage} / ${totalPages} 페이지)`;
 
   const tbody = document.getElementById("admin-module-list");
   if (!pagedItems.length) {
@@ -152,11 +156,25 @@ function renderAdminModulesPage(page = 1) {
     tbody.innerHTML = pagedItems.map(m => `
       <tr>
         <td>
-          <input type="text" id="mod-name-${m.module_id}" value="${(m.name || "").replace(/"/g, "&quot;")}" placeholder="${m.default_name}" />
-          <small style="color:#64748b; display:block; margin-top:3px;">ID: ${m.module_id}</small>
+          <div style="margin-bottom:6px;">
+            <span class="tag" style="font-size:11px;">KO</span>
+            <input type="text" id="mod-name-${m.module_id}" value="${(m.name || "").replace(/"/g, "&quot;")}" placeholder="${m.default_name}" style="margin-top:2px;" />
+          </div>
+          <div>
+            <span class="tag" style="font-size:11px; background:#fef3c7; color:#92400e;">ID (인도네시아어)</span>
+            <input type="text" id="mod-name-id-${m.module_id}" value="${(m.name_id || "").replace(/"/g, "&quot;")}" placeholder="Judul alat (Bahasa Indonesia)" style="margin-top:2px;" />
+          </div>
+          <small style="color:#64748b; display:block; margin-top:4px;">ID: ${m.module_id}</small>
         </td>
         <td>
-          <input type="text" id="mod-desc-${m.module_id}" value="${(m.description || "").replace(/"/g, "&quot;")}" placeholder="도구 설명을 입력하세요..." />
+          <div style="margin-bottom:6px;">
+            <span class="tag" style="font-size:11px;">KO</span>
+            <input type="text" id="mod-desc-${m.module_id}" value="${(m.description || "").replace(/"/g, "&quot;")}" placeholder="한국어 도구 설명..." style="margin-top:2px;" />
+          </div>
+          <div>
+            <span class="tag" style="font-size:11px; background:#fef3c7; color:#92400e;">ID (인도네시아어)</span>
+            <input type="text" id="mod-desc-id-${m.module_id}" value="${(m.description_id || "").replace(/"/g, "&quot;")}" placeholder="Deskripsi alat (Bahasa Indonesia)..." style="margin-top:2px;" />
+          </div>
         </td>
         <td>
           <select id="mod-en-${m.module_id}">
@@ -177,7 +195,8 @@ function renderAdminModulesPage(page = 1) {
     `).join("");
   }
 
-  document.getElementById("admin-mod-pagination").innerHTML = renderPaginationBar(currentAdminModPage, totalPages, "renderAdminModulesPage");
+  document.getElementById("admin-mod-pagination").innerHTML =
+    renderPaginationBar(currentAdminModPage, totalPages, "renderAdminModulesPage");
 }
 
 function renderAdminUsersPage(page = 1) {
@@ -333,6 +352,8 @@ async function handleDeleteForbiddenNickname(wordId) {
 async function saveModulePolicy(moduleId) {
   const custom_name = document.getElementById(`mod-name-${moduleId}`).value.trim();
   const custom_description = document.getElementById(`mod-desc-${moduleId}`).value.trim();
+  const custom_name_id = document.getElementById(`mod-name-id-${moduleId}`).value.trim();
+  const custom_description_id = document.getElementById(`mod-desc-id-${moduleId}`).value.trim();
   const is_enabled = document.getElementById(`mod-en-${moduleId}`).value === "true";
   const access_type = document.getElementById(`mod-acc-${moduleId}`).value;
   const allowed_grades = document.getElementById(`mod-gr-${moduleId}`).value.split(",");
@@ -343,10 +364,12 @@ async function saveModulePolicy(moduleId) {
     body: JSON.stringify({
       custom_name,
       custom_description,
+      custom_name_id,
+      custom_description_id,
       is_enabled,
       access_type,
-      allowed_grades
-    })
+      allowed_grades,
+    }),
   });
   if (!res.ok) return showMsg("도구 설정 저장 실패", true);
 
@@ -354,11 +377,13 @@ async function saveModulePolicy(moduleId) {
   if (target) {
     target.name = custom_name || target.default_name;
     target.description = custom_description || target.default_description;
+    target.name_id = custom_name_id || target.default_name_id;
+    target.description_id = custom_description_id || target.default_description_id;
     target.is_enabled = is_enabled;
     target.access_type = access_type;
     target.allowed_grades = allowed_grades.map(s => s.trim()).filter(Boolean);
   }
-  showMsg("도구 제목·설명 및 승인 조건이 저장되었습니다.");
+  showMsg("도구 한국어·인도네시아어 문구 및 승인 조건이 저장되었습니다.");
   await fetchToolsList();
   renderAdminModulesPage(currentAdminModPage);
 }

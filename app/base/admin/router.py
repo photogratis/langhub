@@ -84,39 +84,14 @@ def update_user_by_admin(
     return res.data[0]
 
 # --- [모듈 관리 API] ---
-@router.get("/modules")
-def list_modules(admin: dict = Depends(require_admin)):
-    modules_dir = os.path.join("app", "modules")
-    if not os.path.exists(modules_dir):
-        os.makedirs(modules_dir)
-
-    db_res = supabase.table("system_modules").select("*").execute()
-    db_states = {row["module_id"]: row for row in db_res.data}
-
-    result = []
-    for folder in os.listdir(modules_dir):
-        manifest_path = os.path.join(modules_dir, folder, "manifest.json")
-        if os.path.isfile(manifest_path):
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-            policy = db_states.get(folder, {})
-            result.append({
-                "module_id": folder,
-                "name": meta.get("name", folder),
-                "version": meta.get("version", "1.0.0"),
-                "is_enabled": policy.get("is_enabled", True),
-                "access_type": policy.get("access_type", "PUBLIC"),
-                "allowed_grades": policy.get("allowed_grades", []),
-            })
-    return result
-
-
 class ModulePolicyUpdateRequest(BaseModel):
     is_enabled: bool
     access_type: str
     allowed_grades: List[str] = []
     custom_name: Optional[str] = None
     custom_description: Optional[str] = None
+    custom_name_id: Optional[str] = None
+    custom_description_id: Optional[str] = None
 
 
 @router.get("/modules")
@@ -129,13 +104,19 @@ def list_all_modules_for_admin(admin: dict = Depends(require_admin)):
         row = db_map.get(mod_id, {})
         default_name = meta.get("name", mod_id)
         default_desc = meta.get("description", "")
+        default_name_id = meta.get("name_id", "")
+        default_desc_id = meta.get("description_id", "")
 
         result.append({
             "module_id": mod_id,
             "default_name": default_name,
             "default_description": default_desc,
+            "default_name_id": default_name_id,
+            "default_description_id": default_desc_id,
             "name": (row.get("custom_name") or "").strip() or default_name,
             "description": (row.get("custom_description") or "").strip() or default_desc,
+            "name_id": (row.get("custom_name_id") or "").strip() or default_name_id,
+            "description_id": (row.get("custom_description_id") or "").strip() or default_desc_id,
             "is_enabled": row.get("is_enabled", True),
             "access_type": row.get("access_type", "PUBLIC"),
             "allowed_grades": row.get("allowed_grades") or [],
@@ -152,6 +133,8 @@ def update_module_policy(
     cleaned_grades = [g.strip().upper() for g in req.allowed_grades if g.strip()]
     custom_name = req.custom_name.strip() if req.custom_name else None
     custom_desc = req.custom_description.strip() if req.custom_description else None
+    custom_name_id = req.custom_name_id.strip() if req.custom_name_id else None
+    custom_desc_id = req.custom_description_id.strip() if req.custom_description_id else None
 
     payload = {
         "module_id": module_id,
@@ -160,6 +143,8 @@ def update_module_policy(
         "allowed_grades": cleaned_grades,
         "custom_name": custom_name,
         "custom_description": custom_desc,
+        "custom_name_id": custom_name_id,
+        "custom_description_id": custom_desc_id,
     }
     try:
         supabase.table("system_modules").upsert(payload).execute()
@@ -167,7 +152,6 @@ def update_module_policy(
         raise HTTPException(status_code=500, detail=f"모듈 설정 저장 실패: {str(e)}")
 
     return {"message": "모듈 설정이 저장되었습니다."}
-
 class ForbiddenNicknameCreateRequest(BaseModel):
     word: str = Field(..., min_length=1, max_length=50)
     reason: str = Field("", max_length=200)
