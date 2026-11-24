@@ -1,0 +1,16 @@
+{
+  "module_id": "korean_youtube",
+  "name": "유튜브 한국어 자막·쉐도잉 학습",
+  "name_id": "Belajar Bahasa Korea via YouTube",
+  "description": "유튜브 영상의 한국어·인도네시아어 타임스탬프 자막과 음성인식 스크립트를 영상 재생 위치와 실시간 동기화하여 학습합니다.",
+  "description_id": "Sinkronisasi subtitle Korea & Indonesia dengan posisi video YouTube secara real-time.",
+  "version": "1.0.0",
+  "type": "feature",
+  "dependencies": [],
+  "ui": {
+    "asset_module": "korean_youtube",
+    "html": "widget.html",
+    "js": "widget.js",
+    "init_fn": "initKoreanYoutubeModule"
+  }
+}
