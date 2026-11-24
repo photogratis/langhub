@@ -1,12 +1,15 @@
 /* =========================================================
    korean_reading/ui/widget.js
+   - 읽기 지문 그룹(시리즈/교재별 묶음) 관리 및 그룹별 목록 렌더링
    - Web Audio API VAD (실제 발화 시작 ~ 종료 시점 정밀 측정)
    - MediaRecorder (모바일/PC 마이크 녹음)
    - Web Speech API (ko-KR 한국어 음성인식 & TTS 들어보기)
 ========================================================= */
 
+var kreadingGroupsCache = [];
 var kreadingPassagesCache = [];
 var selectedReadingPassage = null;
+var editingReadingGroupId = null;
 
 var krMediaStream = null;
 var krMediaRecorder = null;
@@ -50,6 +53,7 @@ async function initKoreanReadingModule() {
     el.classList.toggle("hidden", !isStaff);
   });
 
+  await loadReadingGroups();
   switchKreadingTab("test");
 }
 
@@ -77,8 +81,50 @@ function switchKreadingTab(tabName) {
   } else if (tabName === "my") {
     loadMyReadingAttempts();
   } else if (tabName === "admin") {
-    loadAdminReadingPassages();
+    loadReadingGroups().then(() => loadAdminReadingPassages());
   }
+}
+
+/* =========================================================
+   지문 그룹 조회 및 드롭다운 동기화
+========================================================= */
+async function loadReadingGroups() {
+  const res = await fetch("/api/v1/modules/korean_reading/groups", {
+    headers: getAuthHeaders(false),
+  });
+  kreadingGroupsCache = res.ok ? await res.json() : [];
+
+  // 1) 학습자 필터 드롭다운
+  const filterSel = document.getElementById("kr-filter-group");
+  if (filterSel) {
+    const prev = filterSel.value;
+    filterSel.innerHTML =
+      `<option value="">전체 그룹 · 단독 지문</option>` +
+      kreadingGroupsCache
+        .map(g => `<option value="${g.id}">📁 [${g.level}] ${g.title}</option>`)
+        .join("") +
+      `<option value="UNGROUPED">📌 단독 지문만 보기</option>`;
+    if ([...filterSel.options].some(o => o.value === prev)) {
+      filterSel.value = prev;
+    }
+  }
+
+  // 2) 관리자 등록/수정 드롭다운
+  ["kr-new-group-id", "kr-edit-group-id"].forEach(selId => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML =
+      `<option value="">단독 지문 (그룹 없음)</option>` +
+      kreadingGroupsCache
+        .map(g => `<option value="${g.id}">[${g.level}] ${g.title}</option>`)
+        .join("");
+    if ([...sel.options].some(o => o.value === prev)) {
+      sel.value = prev;
+    }
+  });
+
+  renderAdminReadingGroupsList();
 }
 
 /* =========================================================
@@ -126,14 +172,40 @@ function stopReadingTts() {
 }
 
 /* =========================================================
-   탭 1: 읽기 지문 목록 및 테스트
+   탭 1: 읽기 지문 목록 (그룹별 묶음 + 단독 지문 렌더링) 및 테스트
 ========================================================= */
+function _renderSinglePassageCardHtml(p, showOrderBadge = false) {
+  const orderBadge = showOrderBadge
+    ? `<span class="tag" style="background:#ede9fe; color:#5b21b6; margin-right:4px;">${p.group_order || 1}번</span>`
+    : "";
+  return `
+    <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+      <div>
+        <div>
+          ${orderBadge}
+          <span class="pos-badge">${p.level}</span>
+          <strong style="font-size:15px; color:#0f172a; margin-left:6px;">${p.title}</strong>
+          ${(p.tags || []).map(t => `<span class="tag" style="margin-left:4px;">#${t}</span>`).join("")}
+        </div>
+        <div style="font-size:12.5px; color:#64748b; margin-top:4px;">
+          분량: <b>${p.char_count}음절 (${p.word_count}어절)</b> · 출제자: ${p.author_name || "선생님"}
+        </div>
+      </div>
+      <button type="button" style="background:#2563eb; padding:8px 14px;" onclick="selectReadingPassageForTest('${p.id}')">
+        이 지문 읽기
+      </button>
+    </div>
+  `;
+}
+
 async function loadKreadingPassages() {
+  const groupId = document.getElementById("kr-filter-group")?.value || "";
   const level = document.getElementById("kr-filter-level")?.value || "";
   const tag = document.getElementById("kr-filter-tag")?.value.trim() || "";
   const q = document.getElementById("kr-filter-q")?.value.trim() || "";
 
   const params = new URLSearchParams();
+  if (groupId) params.append("group_id", groupId);
   if (level) params.append("level", level);
   if (tag) params.append("tag", tag);
   if (q) params.append("q", q);
@@ -153,33 +225,77 @@ async function loadKreadingPassages() {
     return;
   }
 
-  listEl.innerHTML = kreadingPassagesCache.map(p => `
-    <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-      <div>
-        <div>
-          <span class="pos-badge">${p.level}</span>
-          <strong style="font-size:15px; color:#0f172a; margin-left:6px;">${p.title}</strong>
-          ${(p.tags || []).map(t => `<span class="tag" style="margin-left:4px;">#${t}</span>`).join("")}
+  // 그룹별로 지문 분류
+  const groupedMap = new Map();
+  const ungrouped = [];
+
+  kreadingPassagesCache.forEach(p => {
+    const grp = p.reading_passage_groups;
+    if (p.group_id && grp) {
+      const gid = String(p.group_id);
+      if (!groupedMap.has(gid)) {
+        groupedMap.set(gid, { group: grp, items: [] });
+      }
+      groupedMap.get(gid).items.push(p);
+    } else {
+      ungrouped.push(p);
+    }
+  });
+
+  const sectionsHtml = [];
+
+  // 1) 그룹 섹션 렌더링
+  groupedMap.forEach(({ group, items }) => {
+    items.sort((a, b) => (a.group_order || 1) - (b.group_order || 1));
+    sectionsHtml.push(`
+      <div style="background:#faf5ff; border:1px solid #d8b4fe; border-radius:10px; padding:14px; margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+          <div>
+            <span class="tag" style="background:#7c3aed; color:#fff;">📁 그룹</span>
+            <strong style="font-size:16px; color:#4c1d95; margin-left:6px;">${group.title}</strong>
+            <span style="font-size:12px; color:#6b21a8; margin-left:6px;">(총 ${items.length}개 지문)</span>
+          </div>
+          <span class="pos-badge">${group.level || ""}</span>
         </div>
-        <div style="font-size:12.5px; color:#64748b; margin-top:4px;">
-          분량: <b>${p.char_count}음절 (${p.word_count}어절)</b> · 출제자: ${p.author_name || "선생님"}
+        ${group.description ? `<div style="font-size:13px; color:#5b21b6; margin-bottom:10px;">${group.description}</div>` : ""}
+        <div>
+          ${items.map(p => _renderSinglePassageCardHtml(p, true)).join("")}
         </div>
       </div>
-      <button type="button" style="background:#2563eb; padding:8px 14px;" onclick="selectReadingPassageForTest('${p.id}')">
-        이 지문 읽기
-      </button>
-    </div>
-  `).join("");
+    `);
+  });
+
+  // 2) 단독 지문 렌더링
+  if (ungrouped.length) {
+    if (groupedMap.size > 0) {
+      sectionsHtml.push(`<div style="font-size:13.5px; font-weight:700; color:#475569; margin:12px 0 8px 2px;">📌 개별 지문</div>`);
+    }
+    sectionsHtml.push(ungrouped.map(p => _renderSinglePassageCardHtml(p, false)).join(""));
+  }
+
+  listEl.innerHTML = sectionsHtml.join("");
 }
 
 function selectReadingPassageForTest(passageId) {
   cleanupReadingAudioEngine();
   stopReadingTts();
 
-  const p = kreadingPassagesCache.find(item => item.id === passageId);
+  const p = kreadingPassagesCache.find(item => String(item.id) === String(passageId));
   if (!p) return;
 
   selectedReadingPassage = p;
+
+  const grpBadge = document.getElementById("kr-active-group-badge");
+  const grp = p.reading_passage_groups;
+  if (grpBadge) {
+    if (p.group_id && grp) {
+      grpBadge.textContent = `📁 ${grp.title} (${p.group_order || 1}번)`;
+      grpBadge.classList.remove("hidden");
+    } else {
+      grpBadge.classList.add("hidden");
+    }
+  }
+
   document.getElementById("kr-active-level").textContent = p.level;
   document.getElementById("kr-active-title").textContent = p.title;
   document.getElementById("kr-active-meta").innerHTML = `총 <b>${p.char_count}음절</b> · <b>${p.word_count}어절</b> · 작성자: ${p.author_name || "선생님"}`;
@@ -196,9 +312,54 @@ function selectReadingPassageForTest(passageId) {
   document.getElementById("kr-btn-cancel").classList.add("hidden");
   document.getElementById("kr-result-box").classList.add("hidden");
 
+  // 같은 그룹 내 이전/다음 지문 네비게이션 업데이트
+  updateReadingGroupNavBar();
+
   const studio = document.getElementById("kr-studio-box");
   studio.classList.remove("hidden");
   studio.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function getSiblingsInSameReadingGroup() {
+  if (!selectedReadingPassage || !selectedReadingPassage.group_id) return [];
+  return kreadingPassagesCache
+    .filter(item => String(item.group_id) === String(selectedReadingPassage.group_id))
+    .sort((a, b) => (a.group_order || 1) - (b.group_order || 1));
+}
+
+function updateReadingGroupNavBar() {
+  const navBar = document.getElementById("kr-group-nav-bar");
+  if (!navBar) return;
+
+  const siblings = getSiblingsInSameReadingGroup();
+  if (siblings.length <= 1) {
+    navBar.classList.add("hidden");
+    return;
+  }
+
+  const idx = siblings.findIndex(item => String(item.id) === String(selectedReadingPassage.id));
+  navBar.classList.remove("hidden");
+
+  const prevBtn = document.getElementById("kr-btn-prev-in-group");
+  const nextBtn = document.getElementById("kr-btn-next-in-group");
+  const labelEl = document.getElementById("kr-group-nav-label");
+
+  if (prevBtn) prevBtn.disabled = idx <= 0;
+  if (nextBtn) nextBtn.disabled = idx < 0 || idx >= siblings.length - 1;
+  if (labelEl) {
+    const grpTitle = selectedReadingPassage.reading_passage_groups?.title || "그룹";
+    labelEl.textContent = `📁 ${grpTitle} (${idx + 1} / ${siblings.length})`;
+  }
+}
+
+function navigateInReadingGroup(delta) {
+  const siblings = getSiblingsInSameReadingGroup();
+  if (!siblings.length) return;
+  const idx = siblings.findIndex(item => String(item.id) === String(selectedReadingPassage.id));
+  const nextIdx = idx + delta;
+  if (nextIdx >= 0 && nextIdx < siblings.length) {
+    selectReadingPassageForTest(siblings[nextIdx].id);
+  }
 }
 
 async function startReadingRecording() {
@@ -494,7 +655,7 @@ function cleanupReadingAudioEngine() {
 }
 
 /* =========================================================
-   탭 2: 공개 기록 듣기 & 랭킹 (전체 지문 통합 보기 + 지문별 필터 모두 지원)
+   탭 2: 공개 기록 듣기 & 랭킹
 ========================================================= */
 async function populatePublicPassageSelector() {
   if (!kreadingPassagesCache.length) {
@@ -505,7 +666,10 @@ async function populatePublicPassageSelector() {
   const sel = document.getElementById("kr-public-passage-select");
   const allOption = `<option value="ALL">🌐 전체 지문 공개 기록 모두 보기</option>`;
   const passageOptions = kreadingPassagesCache
-    .map(p => `<option value="${p.id}">[${p.level}] ${p.title} (${p.char_count}음절)</option>`)
+    .map(p => {
+      const grpPrefix = p.reading_passage_groups?.title ? `[${p.reading_passage_groups.title}] ` : "";
+      return `<option value="${p.id}">${grpPrefix}[${p.level}] ${p.title} (${p.char_count}음절)</option>`;
+    })
     .join("");
 
   sel.innerHTML = allOption + passageOptions;
@@ -630,8 +794,109 @@ async function deleteMyReadingAttempt(attemptId) {
 }
 
 /* =========================================================
-   탭 4: 지문 등록 · 수정 · 삭제 (관리자 & 선생님)
+   탭 4: 지문 그룹 & 지문 등록 · 수정 · 삭제 (관리자 & 선생님)
 ========================================================= */
+function renderAdminReadingGroupsList() {
+  const container = document.getElementById("kr-admin-groups-list");
+  if (!container) return;
+
+  if (!kreadingGroupsCache.length) {
+    container.innerHTML = `<p style="font-size:12.5px; color:#6b21a8; margin:0;">등록된 지문 그룹이 아직 없습니다.</p>`;
+    return;
+  }
+
+  container.innerHTML = kreadingGroupsCache
+    .map(
+      g => `
+      <div style="background:#fff; border:1px solid #e9d5ff; border-radius:8px; padding:10px 12px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div>
+          <span class="pos-badge">${g.level}</span>
+          <strong style="margin-left:6px; color:#4c1d95;">${g.title}</strong>
+          ${(g.tags || []).map(t => `<span class="tag" style="margin-left:4px;">#${t}</span>`).join("")}
+          ${g.description ? `<div style="font-size:12px; color:#64748b; margin-top:3px;">${g.description}</div>` : ""}
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button type="button" style="background:#7c3aed; padding:4px 9px; font-size:12px;" onclick="startEditReadingGroup('${g.id}')">✏️ 그룹 수정</button>
+          <button type="button" class="danger" style="padding:4px 9px; font-size:12px;" onclick="deleteReadingGroup('${g.id}')">삭제</button>
+        </div>
+      </div>
+    `
+    )
+    .join("");
+}
+
+function startEditReadingGroup(groupId) {
+  const g = kreadingGroupsCache.find(item => String(item.id) === String(groupId));
+  if (!g) return;
+
+  editingReadingGroupId = g.id;
+  document.getElementById("kr-grp-title").value = g.title || "";
+  document.getElementById("kr-grp-level").value = g.level || "초급";
+  document.getElementById("kr-grp-tags").value = (g.tags || []).join(", ");
+  document.getElementById("kr-grp-desc").value = g.description || "";
+
+  document.getElementById("kr-group-form-title").textContent = "✏️ 읽기 지문 그룹 수정 중";
+  document.getElementById("kr-group-submit-btn").textContent = "그룹 수정 저장";
+  document.getElementById("kr-group-cancel-btn").classList.remove("hidden");
+}
+
+function cancelEditReadingGroup() {
+  editingReadingGroupId = null;
+  const submitBtn = document.getElementById("kr-group-submit-btn");
+  if (submitBtn && submitBtn.form) submitBtn.form.reset();
+
+  document.getElementById("kr-group-form-title").textContent = "📁 읽기 지문 그룹(묶음) 등록";
+  if (submitBtn) submitBtn.textContent = "그룹 저장하기";
+  document.getElementById("kr-group-cancel-btn").classList.add("hidden");
+}
+
+async function handleSaveReadingGroup(e) {
+  e.preventDefault();
+  clearMsg();
+
+  const body = {
+    title: document.getElementById("kr-grp-title").value.trim(),
+    level: document.getElementById("kr-grp-level").value,
+    tags: document
+      .getElementById("kr-grp-tags")
+      .value.split(",")
+      .map(t => t.trim())
+      .filter(Boolean),
+    description: document.getElementById("kr-grp-desc").value.trim(),
+  };
+
+  const url = editingReadingGroupId
+    ? `/api/v1/modules/korean_reading/groups/${editingReadingGroupId}`
+    : "/api/v1/modules/korean_reading/groups";
+  const method = editingReadingGroupId ? "PATCH" : "POST";
+
+  const res = await fetch(url, {
+    method,
+    headers: getAuthHeaders(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "지문 그룹 저장 실패", true);
+
+  cancelEditReadingGroup();
+  showMsg("읽기 지문 그룹이 저장되었습니다.");
+  await loadReadingGroups();
+  await loadAdminReadingPassages();
+}
+
+async function deleteReadingGroup(groupId) {
+  if (!confirm("그룹을 삭제하시겠습니까? (소속된 지문들은 삭제되지 않고 단독 지문으로 전환됩니다.)")) return;
+  const res = await fetch(`/api/v1/modules/korean_reading/groups/${groupId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "그룹 삭제 실패", true);
+  showMsg(data.message || "지문 그룹이 삭제되었습니다.");
+  await loadReadingGroups();
+  await loadAdminReadingPassages();
+}
+
 async function handleCreateReadingPassage(e) {
   e.preventDefault();
   clearMsg();
@@ -640,11 +905,13 @@ async function handleCreateReadingPassage(e) {
   const level = document.getElementById("kr-new-level").value;
   const tags = document.getElementById("kr-new-tags").value.split(",").map(t => t.trim()).filter(Boolean);
   const content = document.getElementById("kr-new-content").value.trim();
+  const group_id = document.getElementById("kr-new-group-id").value || null;
+  const group_order = parseInt(document.getElementById("kr-new-group-order").value, 10) || 1;
 
   const res = await fetch("/api/v1/modules/korean_reading/passages", {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ title, level, tags, content }),
+    body: JSON.stringify({ title, level, tags, content, group_id, group_order }),
   });
   const data = await res.json();
   if (!res.ok) return showMsg(data.detail || "지문 등록 실패", true);
@@ -655,10 +922,12 @@ async function handleCreateReadingPassage(e) {
 }
 
 function openEditReadingPassage(passageId) {
-  const p = kreadingPassagesCache.find(item => item.id === passageId);
+  const p = kreadingPassagesCache.find(item => String(item.id) === String(passageId));
   if (!p) return;
 
   document.getElementById("kr-edit-id").value = p.id;
+  document.getElementById("kr-edit-group-id").value = p.group_id || "";
+  document.getElementById("kr-edit-group-order").value = p.group_order || 1;
   document.getElementById("kr-edit-title").value = p.title || "";
   document.getElementById("kr-edit-level").value = p.level || "초급";
   document.getElementById("kr-edit-tags").value = (p.tags || []).join(", ");
@@ -683,11 +952,13 @@ async function handleUpdateReadingPassage(e) {
   const level = document.getElementById("kr-edit-level").value;
   const tags = document.getElementById("kr-edit-tags").value.split(",").map(t => t.trim()).filter(Boolean);
   const content = document.getElementById("kr-edit-content").value.trim();
+  const group_id = document.getElementById("kr-edit-group-id").value || null;
+  const group_order = parseInt(document.getElementById("kr-edit-group-order").value, 10) || 1;
 
   const res = await fetch(`/api/v1/modules/korean_reading/passages/${passageId}`, {
     method: "PATCH",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ title, level, tags, content }),
+    body: JSON.stringify({ title, level, tags, content, group_id, group_order }),
   });
   const data = await res.json();
   if (!res.ok) return showMsg(data.detail || "지문 수정 실패", true);
@@ -704,19 +975,23 @@ async function loadAdminReadingPassages() {
 
   const list = await res.json();
   kreadingPassagesCache = list;
-  container.innerHTML = list.map(p => `
-    <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
-      <div>
-        <span class="pos-badge">${p.level}</span>
-        <strong style="margin-left:6px;">${p.title}</strong>
-        <span style="font-size:12px; color:#64748b; margin-left:6px;">(${p.char_count}음절 · 작성자: ${p.author_name || "선생님"})</span>
+  container.innerHTML = list.map(p => {
+    const grpTitle = p.reading_passage_groups?.title;
+    return `
+      <div class="word-card" style="background:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+        <div>
+          ${grpTitle ? `<span class="tag" style="background:#f3e8ff; color:#6b21a8; margin-right:4px;">📁 ${grpTitle} (#${p.group_order || 1})</span>` : ""}
+          <span class="pos-badge">${p.level}</span>
+          <strong style="margin-left:6px;">${p.title}</strong>
+          <span style="font-size:12px; color:#64748b; margin-left:6px;">(${p.char_count}음절 · 작성자: ${p.author_name || "선생님"})</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button type="button" style="background:#0284c7; padding:6px 10px; font-size:12px;" onclick="openEditReadingPassage('${p.id}')">✏️ 수정</button>
+          <button type="button" style="background:#dc2626; padding:6px 10px; font-size:12px;" onclick="deleteReadingPassage('${p.id}')">삭제</button>
+        </div>
       </div>
-      <div style="display:flex; gap:6px;">
-        <button type="button" style="background:#0284c7; padding:6px 10px; font-size:12px;" onclick="openEditReadingPassage('${p.id}')">✏️ 수정</button>
-        <button type="button" style="background:#dc2626; padding:6px 10px; font-size:12px;" onclick="deleteReadingPassage('${p.id}')">삭제</button>
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 async function deleteReadingPassage(passageId) {

@@ -7,6 +7,8 @@ from app.core.database import supabase
 from app.core.module_guard import require_module_access
 from app.base.auth.dependencies import get_current_user, get_optional_user
 from app.modules.korean_reading.schemas import (
+    ReadingGroupCreate,
+    ReadingGroupUpdate,
     ReadingPassageCreate,
     ReadingPassageUpdate,
     ReadingVisibilityUpdate,
@@ -23,19 +25,111 @@ def require_teacher_or_admin(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
-# 1. 지문 목록 조회 (누구나 조회 가능)
+# =========================================================
+# 0. 지문 그룹 CRUD
+# =========================================================
+@router.get("/groups")
+def list_reading_groups(
+    user: Optional[dict] = Depends(require_module_access("korean_reading")),
+):
+    res = (
+        supabase.table("reading_passage_groups")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return res.data or []
+
+
+@router.post("/groups")
+def create_reading_group(
+    req: ReadingGroupCreate,
+    staff: dict = Depends(require_teacher_or_admin),
+):
+    payload = {
+        "title": req.title.strip(),
+        "description": (req.description or "").strip(),
+        "level": req.level.strip() or "초급",
+        "tags": [t.strip() for t in req.tags if t.strip()],
+        "author_id": str(staff["id"]),
+        "author_name": staff.get("nickname") or staff.get("email") or "선생님",
+    }
+    res = supabase.table("reading_passage_groups").insert(payload).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="지문 그룹 생성에 실패했습니다.")
+    return res.data[0]
+
+
+@router.patch("/groups/{group_id}")
+def update_reading_group(
+    group_id: str,
+    req: ReadingGroupUpdate,
+    staff: dict = Depends(require_teacher_or_admin),
+):
+    existing = supabase.table("reading_passage_groups").select("*").eq("id", group_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="지문 그룹을 찾을 수 없습니다.")
+
+    row = existing.data[0]
+    if str(staff.get("grade") or "").upper() != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
+        raise HTTPException(status_code=403, detail="본인이 생성한 그룹만 수정할 수 있습니다.")
+
+    payload = {
+        "title": req.title.strip(),
+        "description": (req.description or "").strip(),
+        "level": req.level.strip() or "초급",
+        "tags": [t.strip() for t in req.tags if t.strip()],
+    }
+    res = supabase.table("reading_passage_groups").update(payload).eq("id", group_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="지문 그룹 수정에 실패했습니다.")
+    return res.data[0]
+
+
+@router.delete("/groups/{group_id}")
+def delete_reading_group(
+    group_id: str,
+    staff: dict = Depends(require_teacher_or_admin),
+):
+    existing = supabase.table("reading_passage_groups").select("*").eq("id", group_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="지문 그룹을 찾을 수 없습니다.")
+
+    row = existing.data[0]
+    if str(staff.get("grade") or "").upper() != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
+        raise HTTPException(status_code=403, detail="본인이 생성한 그룹만 삭제할 수 있습니다.")
+
+    # ON DELETE SET NULL 이므로 소속 지문은 삭제되지 않고 단독 지문으로 유지됨
+    supabase.table("reading_passage_groups").delete().eq("id", group_id).execute()
+    return {"message": "지문 그룹이 삭제되었습니다. (소속 지문은 단독 지문으로 유지됩니다)"}
+
+
+# =========================================================
+# 1. 지문 목록 조회 (그룹 정보 조인)
+# =========================================================
 @router.get("/passages")
 def list_reading_passages(
     level: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
+    group_id: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
     user: Optional[dict] = Depends(require_module_access("korean_reading")),
 ):
-    query = supabase.table("reading_passages").select("*").order("created_at", desc=True)
+    query = (
+        supabase.table("reading_passages")
+        .select("*, reading_passage_groups(id, title, description, level)")
+        .order("group_order", desc=False)
+        .order("created_at", desc=True)
+    )
     if level:
         query = query.eq("level", level)
     if tag and tag.strip():
         query = query.contains("tags", [tag.strip()])
+    if group_id:
+        if group_id == "UNGROUPED":
+            query = query.is_("group_id", "null")
+        else:
+            query = query.eq("group_id", group_id)
     if q and q.strip():
         query = query.ilike("title", f"%{q.strip()}%")
 
@@ -51,12 +145,15 @@ def create_reading_passage(
 ):
     char_count, word_count = compute_passage_stats(req.content)
     tags = [t.strip() for t in req.tags if t.strip()]
+    clean_group_id = (req.group_id or "").strip() or None
 
     payload = {
         "title": req.title.strip(),
         "content": req.content.strip(),
         "level": req.level.strip() or "초급",
         "tags": tags,
+        "group_id": clean_group_id,
+        "group_order": req.group_order or 1,
         "char_count": char_count,
         "word_count": word_count,
         "author_id": str(staff["id"]),
@@ -68,7 +165,7 @@ def create_reading_passage(
     return res.data[0]
 
 
-# 2-1. 지문 수정 (관리자 또는 본인 작성 선생님) [신규 추가]
+# 2-1. 지문 수정 (관리자 또는 본인 작성 선생님)
 @router.patch("/passages/{passage_id}")
 def update_reading_passage(
     passage_id: str,
@@ -85,12 +182,15 @@ def update_reading_passage(
 
     char_count, word_count = compute_passage_stats(req.content)
     tags = [t.strip() for t in req.tags if t.strip()]
+    clean_group_id = (req.group_id or "").strip() or None
 
     payload = {
         "title": req.title.strip(),
         "content": req.content.strip(),
         "level": req.level.strip() or "초급",
         "tags": tags,
+        "group_id": clean_group_id,
+        "group_order": req.group_order or 1,
         "char_count": char_count,
         "word_count": word_count,
     }
@@ -105,7 +205,7 @@ def update_reading_passage(
     return res.data[0]
 
 
-# 3. 지문 삭제 (관리자 또는 본인 작성 선생님)
+# 3. 지문 삭제
 @router.delete("/passages/{passage_id}")
 def delete_reading_passage(
     passage_id: str,
@@ -123,7 +223,7 @@ def delete_reading_passage(
     return {"message": "지문이 삭제되었습니다."}
 
 
-# 4. 읽기 녹음 제출 및 정확도·속도(CPM/WPM) 평가 저장
+# 4. 읽기 녹음 제출 및 정확도·속도 평가 저장
 @router.post("/submit")
 async def submit_reading_attempt(
     passage_id: str = Form(...),
@@ -191,7 +291,7 @@ async def submit_reading_attempt(
     return saved
 
 
-# 5-1. 전체 지문의 모든 공개 기록 통합 조회 [신규 추가]
+# 5-1. 전체 지문의 모든 공개 기록 통합 조회
 @router.get("/public-attempts")
 def list_all_public_attempts(
     sort_by: str = Query("recent", description="accuracy | speed | recent"),
@@ -213,7 +313,7 @@ def list_all_public_attempts(
     return res.data or []
 
 
-# 5-2. 특정 지문의 공개된 다른 사용자 기록 조회 (is_public = True 만 노출)
+# 5-2. 특정 지문의 공개된 다른 사용자 기록 조회
 @router.get("/passages/{passage_id}/public-attempts")
 def list_public_attempts_for_passage(
     passage_id: str,
@@ -275,7 +375,7 @@ def update_attempt_visibility(
     return res.data[0]
 
 
-# 8. 내 녹음 기록 삭제 (오디오 스토리지 파일 포함) [신규 추가]
+# 8. 내 녹음 기록 삭제
 @router.delete("/attempts/{attempt_id}")
 def delete_my_reading_attempt(
     attempt_id: str,
@@ -289,7 +389,6 @@ def delete_my_reading_attempt(
     if str(row.get("user_id")) != str(current_user["id"]) and str(current_user.get("grade") or "").upper() != "ADMIN":
         raise HTTPException(status_code=403, detail="본인의 녹음 기록만 삭제할 수 있습니다.")
 
-    # Supabase Storage 파일 삭제 시도
     audio_url = row.get("audio_url") or ""
     marker = "/reading-audio/"
     if marker in audio_url:
