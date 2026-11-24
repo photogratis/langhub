@@ -107,13 +107,21 @@ def create_youtube_video(
     return res.data[0]
 
 
-# 4. 영상 및 자막 수정
+# 4. 영상 정보(URL·제목·난이도·태그·메모) 및 자막 스크립트 전체 수정
 @router.patch("/videos/{item_id}")
 def update_youtube_video(
     item_id: str,
     req: YoutubeVideoUpdate,
     staff: dict = Depends(require_staff),
 ):
+    existing = supabase.table("korean_youtube_videos").select("*").eq("id", item_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="수정할 영상을 찾을 수 없습니다.")
+
+    row = existing.data[0]
+    if str(staff.get("grade") or "").upper() != "ADMIN" and str(row.get("author_id")) != str(staff["id"]):
+        raise HTTPException(status_code=403, detail="본인이 등록한 학습 자료만 수정할 수 있습니다.")
+
     payload = {
         "title": req.title.strip(),
         "level": req.level.strip() or "초급",
@@ -121,9 +129,25 @@ def update_youtube_video(
         "description": req.description.strip(),
         "subtitles": [s.model_dump() for s in req.subtitles],
     }
-    res = supabase.table("korean_youtube_videos").update(payload).eq("id", item_id).execute()
+
+    if req.youtube_url and req.youtube_url.strip():
+        try:
+            payload["youtube_url"] = req.youtube_url.strip()
+            payload["video_id"] = extract_youtube_video_id(req.youtube_url.strip())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    if req.subtitle_source:
+        payload["subtitle_source"] = req.subtitle_source.strip()
+
+    res = (
+        supabase.table("korean_youtube_videos")
+        .update(payload)
+        .eq("id", item_id)
+        .execute()
+    )
     if not res.data:
-        raise HTTPException(status_code=404, detail="대상을 찾을 수 없습니다.")
+        raise HTTPException(status_code=500, detail="영상 수정에 실패했습니다.")
     return res.data[0]
 
 

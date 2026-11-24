@@ -7,7 +7,7 @@ class SubtitleLine(BaseModel):
     end: float = Field(..., ge=0)
     ko: str = ""
     id: str = ""
-    source: str = "CAPTION"  # CAPTION | AUTO_TRANSLATE | STT
+    source: str = "CAPTION"
 
 
 class YoutubeExtractRequest(BaseModel):
@@ -26,8 +26,10 @@ class YoutubeVideoCreate(BaseModel):
 
 
 class YoutubeVideoUpdate(BaseModel):
+    youtube_url: Optional[str] = None
     title: str = Field(..., min_length=1, max_length=200)
     level: str = Field("초급")
     tags: List[str] = Field(default_factory=list)
     description: str = ""
+    subtitle_source: Optional[str] = None
     subtitles: List[SubtitleLine] = Field(default_factory=list)
