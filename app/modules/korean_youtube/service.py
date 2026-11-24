@@ -47,13 +47,15 @@ def extract_youtube_video_id(url: str) -> str:
 
 def fetch_and_merge_subtitles(video_id: str, auto_translate_id: bool = True) -> Tuple[str, List[dict]]:
     """
-    1) 한국어 기존 자막(수동/자동생성) 추출
+    youtube-transcript-api >= 1.2.x 대응:
+    1) YouTubeTranscriptApi().list(video_id)로 한국어 기존 자막(수동/자동생성) 추출
     2) 인도네시아어 자막이 있으면 타임스탬프 기준 매칭, 없으면 자동 번역(deep_translator) 생성
     """
     if YouTubeTranscriptApi is None:
         raise RuntimeError("서버에 youtube-transcript-api 패키지가 설치되어 있지 않습니다.")
 
-    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+    ytt_api = YouTubeTranscriptApi()
+    transcript_list = ytt_api.list(video_id)
 
     ko_transcript = None
     source_type = "YOUTUBE_CAPTION"
@@ -67,26 +69,29 @@ def fetch_and_merge_subtitles(video_id: str, auto_translate_id: bool = True) -> 
             ko_transcript = transcript_list.find_generated_transcript(["ko"])
             source_type = "YOUTUBE_AUTO_CAPTION"
         except Exception:
-            # 한국어 자막이 아예 없으면 첫 번째 가용 자막을 한국어로 번역 시도
             for tr in transcript_list:
-                ko_transcript = tr.translate("ko")
-                source_type = "YOUTUBE_TRANSLATED_KO"
-                break
+                if getattr(tr, "is_translatable", False):
+                    ko_transcript = tr.translate("ko")
+                    source_type = "YOUTUBE_TRANSLATED_KO"
+                    break
 
     if ko_transcript is None:
         raise LookupError("이 영상에는 추출 가능한 유튜브 자막이 없습니다. 하단 음성인식(STT) 캡처 기능을 이용해 주세요.")
 
-    ko_rows = ko_transcript.fetch()
+    fetched_ko = ko_transcript.fetch()
+    ko_rows = fetched_ko.to_raw_data() if hasattr(fetched_ko, "to_raw_data") else list(fetched_ko)
 
     # 인도네시아어 자막 확보 시도
     id_rows = []
     try:
         id_tr = transcript_list.find_transcript(["id"])
-        id_rows = id_tr.fetch()
+        fetched_id = id_tr.fetch()
+        id_rows = fetched_id.to_raw_data() if hasattr(fetched_id, "to_raw_data") else list(fetched_id)
     except Exception:
         try:
-            if ko_transcript.is_translatable:
-                id_rows = ko_transcript.translate("id").fetch()
+            if getattr(ko_transcript, "is_translatable", False):
+                fetched_id = ko_transcript.translate("id").fetch()
+                id_rows = fetched_id.to_raw_data() if hasattr(fetched_id, "to_raw_data") else list(fetched_id)
         except Exception:
             id_rows = []
 
@@ -102,7 +107,6 @@ def fetch_and_merge_subtitles(video_id: str, auto_translate_id: bool = True) -> 
         if not ko_text:
             continue
 
-        # 시간대가 가장 가까운 인도네시아어 자막 매칭
         id_text = ""
         if id_rows:
             closest = min(id_rows, key=lambda r: abs(float(r.get("start", 0.0)) - start))
