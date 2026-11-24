@@ -256,37 +256,111 @@ async function extractSubtitlesFromUrl() {
   const url = document.getElementById("kyt-new-url")?.value.trim();
   if (!url) return showMsg("유튜브 URL을 입력해 주세요.", true);
 
+  const videoIdMatch = url.match(/(?:v=|\/|youtu\.be\/|shorts\/)([0-9A-Za-z_-]{11})/);
+  const videoId = videoIdMatch ? videoIdMatch[1] : "";
+  if (!videoId) return showMsg("유효한 유튜브 URL이 아닙니다.", true);
+
   showMsg("유튜브 자막 및 자동번역 데이터를 가져오는 중입니다...");
   const res = await fetch("/api/v1/modules/korean_youtube/extract-subtitles", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ youtube_url: url, auto_translate_id: true }),
   });
-  const data = await res.json();
-  if (!res.ok) return showMsg(data.detail || "자막 추출 실패", true);
+  const data = await res.json().catch(() => ({}));
+
+  // 미리보기 플레이어 및 STT 캡처 도구는 성공/실패 여부와 무관하게 항상 활성화
+  const sttBox = document.getElementById("kyt-stt-capture-box");
+  if (sttBox) sttBox.classList.remove("hidden");
+  await ensureYoutubeIframeApi();
+  if (kytAdminPreviewPlayer && typeof kytAdminPreviewPlayer.loadVideoById === "function") {
+    kytAdminPreviewPlayer.loadVideoById(videoId);
+  } else {
+    kytAdminPreviewPlayer = new YT.Player("kyt-admin-preview-player", {
+      videoId: videoId,
+      playerVars: { rel: 0, playsinline: 1 },
+    });
+  }
+
+  if (!res.ok) {
+    kytDraftSource = "MANUAL_PASTE";
+    return showMsg(
+      "클라우드 서버 IP 차단으로 자동 추출이 제한되었습니다. 아래 [자막 텍스트/SRT 붙여넣기] 또는 [음성인식 캡처]를 이용해 주세요.",
+      true
+    );
+  }
 
   kytDraftSource = data.subtitle_source || "YOUTUBE_CAPTION";
   kytDraftSubtitles = data.subtitles || [];
   renderDraftSubtitlesEditor();
 
-  // 자막이 없거나 보완이 필요한 경우 음성인식 캡처 박스 활성화
-  const sttBox = document.getElementById("kyt-stt-capture-box");
-  sttBox.classList.remove("hidden");
-  await ensureYoutubeIframeApi();
-  if (kytAdminPreviewPlayer && typeof kytAdminPreviewPlayer.loadVideoById === "function") {
-    kytAdminPreviewPlayer.loadVideoById(data.video_id);
-  } else {
-    kytAdminPreviewPlayer = new YT.Player("kyt-admin-preview-player", {
-      videoId: data.video_id,
-      playerVars: { rel: 0, playsinline: 1 },
-    });
-  }
-
   if (data.has_captions) {
     showMsg(`총 ${kytDraftSubtitles.length}개 문장의 타임스탬프 자막을 추출했습니다.`);
   } else {
-    showMsg(data.message || "자막이 없는 영상입니다. 아래 음성인식 캡처 도구를 사용해 주세요.", true);
+    showMsg(data.message || "자막이 없는 영상입니다. 아래 도구로 자막을 추가해 주세요.", true);
   }
+}
+
+// 유튜브 스크립트 복사본(0:05 안녕하세요) 또는 SRT 형식을 타임스탬프 데이터로 자동 파싱
+function parsePastedYoutubeTranscript() {
+  const raw = document.getElementById("kyt-paste-transcript")?.value || "";
+  if (!raw.trim()) return showMsg("붙여넣을 자막 텍스트를 입력해 주세요.", true);
+
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const parsed = [];
+  const timeRegex = /^(\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d+)?$/;
+
+  for (let i = 0; i < lines.length; i++) {
+    // SRT 블록 번호 건너뛰기
+    if (/^\d+$/.test(lines[i]) && i + 1 < lines.length && lines[i + 1].includes("-->")) {
+      continue;
+    }
+    // SRT 시간 범위 (00:00:01,200 --> 00:00:04,500)
+    if (lines[i].includes("-->")) {
+      const [startStr, endStr] = lines[i].split("-->").map(s => s.trim().replace(",", "."));
+      const start = _timeStrToSec(startStr);
+      const end = _timeStrToSec(endStr);
+      const textLines = [];
+      while (i + 1 < lines.length && !/^\d+$/.test(lines[i + 1]) && !lines[i + 1].includes("-->")) {
+        i++;
+        textLines.push(lines[i]);
+      }
+      if (textLines.length) {
+        parsed.push({ start, end, ko: textLines.join(" "), id: "", source: "SRT_PASTE" });
+      }
+      continue;
+    }
+    // 유튜브 웹페이지 [스크립트 표시] 복사 형식 (예: "0:12" 다음 줄 "안녕하세요")
+    if (timeRegex.test(lines[i])) {
+      const start = _timeStrToSec(lines[i]);
+      const text = (i + 1 < lines.length && !timeRegex.test(lines[i + 1])) ? lines[++i] : "";
+      if (text) {
+        parsed.push({ start, end: start + 3, ko: text, id: "", source: "YT_COPY" });
+      }
+    }
+  }
+
+  // 종료 시간(end)을 다음 자막 시작 시간으로 자동 보정
+  for (let i = 0; i < parsed.length - 1; i++) {
+    if (parsed[i + 1].start > parsed[i].start) {
+      parsed[i].end = parsed[i + 1].start;
+    }
+  }
+
+  if (!parsed.length) {
+    return showMsg("인식된 타임스탬프 형식이 없습니다. 유튜브 '스크립트 표시' 복사본 또는 SRT 형식을 붙여넣어 주세요.", true);
+  }
+
+  kytDraftSubtitles = parsed;
+  kytDraftSource = "PASTED_TRANSCRIPT";
+  renderDraftSubtitlesEditor();
+  showMsg(`총 ${parsed.length}개 자막 줄이 타임스탬프와 함께 변환되었습니다!`);
+}
+
+function _timeStrToSec(tStr) {
+  const parts = String(tStr || "0").split(":").map(Number);
+  if (parts.length === 3) return Number((parts[0] * 3600 + parts[1] * 60 + parts[2]).toFixed(2));
+  if (parts.length === 2) return Number((parts[0] * 60 + parts[1]).toFixed(2));
+  return Number((parts[0] || 0).toFixed(2));
 }
 
 function startAdminSttCapture() {
