@@ -135,6 +135,15 @@ function setSiteLanguage(lang) {
         currentSiteLang === "id" ? menu.name_id || menu.name : menu.name;
     }
   }
+
+  if (activeModuleId === "korean_reading" && typeof applyKreadingLanguage === "function") {
+    applyKreadingLanguage();
+    if (typeof krActiveTab !== "undefined") {
+      if (krActiveTab === "test") renderKreadingPassagesPage(krTestPage || 1);
+      else if (krActiveTab === "admin") renderAdminReadingPassagesPage(krAdminPage || 1);
+      else switchKreadingTab(krActiveTab);
+    }
+  }
 }
 
 function applyShellLanguage() {
