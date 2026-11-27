@@ -1,5 +1,5 @@
 <div class="module-box">
-  <!-- 상단 탭 내비게이션 -->
+  <!-- 상단 서브메뉴 탭 내비게이션 -->
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
     <button type="button" id="kr-tab-test" onclick="switchKreadingTab('test')">📖 읽기 테스트</button>
     <button type="button" id="kr-tab-public" class="secondary" onclick="switchKreadingTab('public')">🎧 공개 녹음 듣기</button>
@@ -8,17 +8,17 @@
   </div>
 
   <!-- =====================================================
-       탭 1: 읽기 테스트 (그룹별 묶음 표시 지원)
+       탭 1: 읽기 테스트 (그룹 필터 + 검색 + 페이지네이션)
   ====================================================== -->
   <div id="kr-view-test">
-    <div class="row" style="margin-bottom:12px;">
-      <div style="flex:1.4;">
-        <select id="kr-filter-group" onchange="loadKreadingPassages()">
-          <option value="">전체 그룹 · 단독 지문</option>
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:1.5;">
+        <select id="kr-filter-group" onchange="loadKreadingPassages(1)">
+          <option value="">전체 그룹</option>
         </select>
       </div>
       <div style="flex:1;">
-        <select id="kr-filter-level" onchange="loadKreadingPassages()">
+        <select id="kr-filter-level" onchange="loadKreadingPassages(1)">
           <option value="">전체 난이도</option>
           <option value="초급">초급</option>
           <option value="중급">중급</option>
@@ -26,21 +26,45 @@
         </select>
       </div>
       <div style="flex:1;">
-        <input type="text" id="kr-filter-tag" placeholder="태그 검색..." oninput="loadKreadingPassages()" />
+        <input type="text" id="kr-filter-tag" placeholder="태그 검색..." oninput="loadKreadingPassages(1)" />
       </div>
       <div style="flex:1.5;">
-        <input type="text" id="kr-filter-q" placeholder="지문 제목 검색..." oninput="loadKreadingPassages()" />
+        <input type="text" id="kr-filter-q" placeholder="지문 제목 검색..." oninput="loadKreadingPassages(1)" />
       </div>
     </div>
 
-    <!-- 그룹별 묶음 렌더링 영역 -->
-    <div id="kr-passage-list" style="margin-bottom:16px;"></div>
+    <!-- 선택된 그룹 안내 배너 (특정 그룹 선택 시 표시) -->
+    <div id="kr-selected-group-banner" class="hidden" style="background:#faf5ff; border:1px solid #d8b4fe; border-radius:8px; padding:10px 14px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div>
+        <strong id="kr-banner-group-title" style="color:#581c87; font-size:14.5px;"></strong>
+        <div id="kr-banner-group-desc" style="font-size:12.5px; color:#6b21a8; margin-top:2px;"></div>
+      </div>
+      <button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" onclick="resetKreadingGroupFilter()">
+        ✕ 전체 보기
+      </button>
+    </div>
+
+    <!-- 목록 요약 및 페이지당 개수 선택 -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:13px; color:#475569;">
+      <div id="kr-test-summary"></div>
+      <select id="kr-test-pagesize" style="width:auto; padding:4px 8px; font-size:12.5px;" onchange="renderKreadingPassagesPage(1)">
+        <option value="5">5개씩</option>
+        <option value="10" selected>10개씩</option>
+        <option value="20">20개씩</option>
+      </select>
+    </div>
+
+    <!-- 지문 목록 카드 -->
+    <div id="kr-passage-list" style="margin-bottom:12px;"></div>
+
+    <!-- 페이지네이션 바 -->
+    <div id="kr-passage-pagination" style="margin-bottom:16px;"></div>
 
     <!-- 선택된 지문 녹음 & 측정 스튜디오 -->
     <div id="kr-studio-box" class="hidden" style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:10px; padding:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
         <div>
-          <span id="kr-active-group-badge" class="tag hidden" style="background:#f3e8ff; color:#6b21a8; margin-right:4px;"></span>
+          <span id="kr-active-group" class="tag hidden" style="background:#f3e8ff; color:#6b21a8; margin-right:4px;"></span>
           <span class="pos-badge" id="kr-active-level">초급</span>
           <strong id="kr-active-title" style="font-size:17px; color:#0f172a; margin-left:6px;"></strong>
         </div>
@@ -51,12 +75,12 @@
 
       <!-- TTS 원어민 발음 들어보기 컨트롤 바 -->
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 12px; margin-bottom:10px;">
-        <span style="font-size:13px; font-weight:700; color:#1e40af;">🔊 지문 미리 듣기 (TTS)</span>
+        <span id="kr-tts-label" style="font-size:13px; font-weight:700; color:#1e40af;">🔊 지문 미리 듣기 (TTS)</span>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
-          <button type="button" style="background:#2563eb; padding:5px 11px; font-size:12.5px;" onclick="speakActiveReadingPassage(1.0)">
+          <button type="button" id="kr-btn-tts-normal" style="background:#2563eb; padding:5px 11px; font-size:12.5px;" onclick="speakActiveReadingPassage(1.0)">
             ▶️ 보통 속도 (1.0x)
           </button>
-          <button type="button" style="background:#0284c7; padding:5px 11px; font-size:12.5px;" onclick="speakActiveReadingPassage(0.8)">
+          <button type="button" id="kr-btn-tts-slow" style="background:#0284c7; padding:5px 11px; font-size:12.5px;" onclick="speakActiveReadingPassage(0.8)">
             🐢 천천히 듣기 (0.8x)
           </button>
           <button type="button" id="kr-btn-tts-stop" class="secondary hidden" style="padding:5px 11px; font-size:12.5px;" onclick="stopReadingTts()">
@@ -72,11 +96,11 @@
       <div style="background:#0f172a; color:#fff; border-radius:8px; padding:14px; margin-bottom:12px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div>
-            <div style="font-size:12px; color:#94a3b8;">측정 상태</div>
+            <div id="kr-lbl-vad-state" style="font-size:12px; color:#94a3b8;">측정 상태</div>
             <div id="kr-vad-status" style="font-size:15px; font-weight:800; color:#38bdf8;">대기 중 — 아래 [녹음 시작]을 누른 뒤 읽기 시작하세요</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:12px; color:#94a3b8;">실제 발화 시간</div>
+            <div id="kr-lbl-speech-time" style="font-size:12px; color:#94a3b8;">실제 발화 시간</div>
             <div id="kr-live-timer" style="font-size:28px; font-weight:900; color:#fbbf24; font-variant-numeric:tabular-nums;">0.00초</div>
           </div>
         </div>
@@ -91,7 +115,7 @@
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; margin:0;">
           <input type="checkbox" id="kr-submit-public" style="width:auto;" />
-          <span>내 기록을 <b>공개</b>하여 다른 학습자도 듣고 참고할 수 있게 하기</span>
+          <span id="kr-lbl-public-check">내 기록을 공개하여 다른 학습자도 듣고 참고할 수 있게 하기</span>
         </label>
 
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -129,11 +153,11 @@
   <div id="kr-view-public" class="hidden">
     <div class="row" style="margin-bottom:12px;">
       <div style="flex:2;">
-        <label>지문 선택</label>
+        <label id="kr-lbl-pub-passage">지문 선택</label>
         <select id="kr-public-passage-select" onchange="loadPublicAttemptsForSelectedPassage()"></select>
       </div>
       <div style="flex:1;">
-        <label>정렬 기준</label>
+        <label id="kr-lbl-pub-sort">정렬 기준</label>
         <select id="kr-public-sort" onchange="loadPublicAttemptsForSelectedPassage()">
           <option value="recent">최신 등록순</option>
           <option value="accuracy">정확도 높은순</option>
@@ -152,67 +176,79 @@
   </div>
 
   <!-- =====================================================
-       탭 4: 지문 및 그룹 관리 (관리자 / 선생님)
+       탭 4: 지문·그룹 관리 (관리자 / 선생님)
   ====================================================== -->
   <div id="kr-view-admin" class="hidden">
-    <!-- 4-1. 지문 그룹(시리즈/묶음) 관리 섹션 -->
-    <div style="background:#faf5ff; border:1px solid #d8b4fe; border-radius:10px; padding:16px; margin-bottom:18px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
-        <h4 id="kr-group-form-title" style="margin:0; color:#5b21b6;">📁 읽기 지문 그룹(묶음) 등록</h4>
-        <button type="button" id="kr-group-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelEditReadingGroup()">
-          수정 취소
+    <!-- 4-1. 지문 그룹 관리 (접기/펼치기 지원으로 화면 깔끔하게 유지) -->
+    <div style="background:#faf5ff; border:1px solid #d8b4fe; border-radius:10px; padding:14px; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <strong id="kr-grp-section-title" style="color:#581c87; font-size:15px;">📁 지문 그룹 관리</strong>
+        <button type="button" id="kr-btn-toggle-grp-form" style="background:#7c3aed; padding:6px 12px; font-size:12.5px;" onclick="toggleGroupManagerPanel()">
+          + 그룹 추가 / 목록 보기
         </button>
       </div>
-      <form onsubmit="handleSaveReadingGroup(event)">
-        <div class="row" style="margin-bottom:8px;">
-          <div style="flex:2;">
-            <label>그룹 제목</label>
-            <input type="text" id="kr-grp-title" placeholder="예: [초급] 1과~5과 일상 대화 읽기" required />
-          </div>
-          <div style="flex:1;">
-            <label>난이도</label>
-            <select id="kr-grp-level">
-              <option value="초급">초급</option>
-              <option value="중급">중급</option>
-              <option value="고급">고급</option>
-            </select>
-          </div>
-          <div style="flex:1;">
-            <label>태그 (쉼표 구분)</label>
-            <input type="text" id="kr-grp-tags" placeholder="예: 초급회화, 시리즈1" />
-          </div>
-        </div>
-        <div style="margin-bottom:10px;">
-          <label>그룹 설명 (선택)</label>
-          <input type="text" id="kr-grp-desc" placeholder="학습자에게 안내할 그룹 소개 문구..." />
-        </div>
-        <button type="submit" id="kr-group-submit-btn" style="background:#7c3aed;">그룹 저장하기</button>
-      </form>
 
-      <div id="kr-admin-groups-list" style="margin-top:12px;"></div>
+      <div id="kr-group-manager-body" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px solid #e9d5ff;">
+        <form onsubmit="handleSaveReadingGroup(event)" style="margin-bottom:12px;">
+          <input type="hidden" id="kr-grp-edit-id" />
+          <div class="row" style="margin-bottom:8px;">
+            <div style="flex:1.5;">
+              <label id="kr-lbl-grp-name">그룹 제목 (한국어)</label>
+              <input type="text" id="kr-grp-title" placeholder="예: [초급] 일상 대화 읽기" required />
+            </div>
+            <div style="flex:1.5;">
+              <label id="kr-lbl-grp-name-id">그룹 제목 (인도네시아어, 선택)</label>
+              <input type="text" id="kr-grp-title-id" placeholder="Contoh: [Pemula] Percakapan Sehari-hari" />
+            </div>
+            <div style="flex:1;">
+              <label id="kr-lbl-grp-level">난이도</label>
+              <select id="kr-grp-level">
+                <option value="초급">초급</option>
+                <option value="중급">중급</option>
+                <option value="고급">고급</option>
+              </select>
+            </div>
+          </div>
+          <div class="row" style="margin-bottom:8px;">
+            <div style="flex:2;">
+              <label id="kr-lbl-grp-desc">그룹 설명 (선택)</label>
+              <input type="text" id="kr-grp-desc" placeholder="그룹 소개 문구..." />
+            </div>
+            <div style="flex:1;">
+              <label id="kr-lbl-grp-tags">태그 (쉼표 구분)</label>
+              <input type="text" id="kr-grp-tags" placeholder="예: 초급회화, 시리즈1" />
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="submit" id="kr-btn-grp-submit" style="background:#7c3aed;">그룹 저장</button>
+            <button type="button" id="kr-btn-grp-cancel" class="secondary hidden" onclick="resetGroupForm()">취소</button>
+          </div>
+        </form>
+        <div id="kr-admin-group-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+      </div>
     </div>
 
     <!-- 4-2. 지문 수정 박스 (수정 버튼 클릭 시 표시) -->
     <div id="kr-edit-passage-box" class="hidden" style="background:#fffbeb; border:2px solid #fcd34d; border-radius:10px; padding:16px; margin-bottom:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-        <strong style="font-size:15px; color:#92400e;">✏️ 읽기 지문 수정</strong>
-        <button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" onclick="closeEditReadingPassage()">닫기</button>
+        <strong id="kr-edit-box-title" style="font-size:15px; color:#92400e;">✏️ 읽기 지문 수정</strong>
+        <button type="button" id="kr-btn-edit-close" class="secondary" style="padding:4px 10px; font-size:12px;" onclick="closeEditReadingPassage()">닫기</button>
       </div>
       <form onsubmit="handleUpdateReadingPassage(event)">
         <input type="hidden" id="kr-edit-id" />
         <div class="row" style="margin-bottom:10px;">
           <div style="flex:2;">
-            <label>소속 그룹 (선택)</label>
-            <select id="kr-edit-group-id">
-              <option value="">단독 지문 (그룹 없음)</option>
+            <label id="kr-lbl-edit-group">소속 그룹</label>
+            <select id="kr-edit-group">
+              <option value="">그룹 없음 (단독 지문)</option>
             </select>
           </div>
           <div style="flex:0.8;">
-            <label>그룹 내 순서</label>
-            <input type="number" id="kr-edit-group-order" value="1" min="1" />
+            <label id="kr-lbl-edit-order">그룹 내 순서</label>
+            <input type="number" id="kr-edit-order" value="1" min="1" />
           </div>
           <div style="flex:1;">
-            <label>난이도</label>
+            <label id="kr-lbl-edit-level">난이도</label>
             <select id="kr-edit-level">
               <option value="초급">초급</option>
               <option value="중급">중급</option>
@@ -222,42 +258,42 @@
         </div>
         <div class="row" style="margin-bottom:10px;">
           <div style="flex:2;">
-            <label>제목</label>
+            <label id="kr-lbl-edit-title">제목</label>
             <input type="text" id="kr-edit-title" required />
           </div>
           <div style="flex:1;">
-            <label>태그 (쉼표 구분)</label>
-            <input type="text" id="kr-edit-tags" placeholder="예: 인사, 일상" />
+            <label id="kr-lbl-edit-tags">태그 (쉼표 구분)</label>
+            <input type="text" id="kr-edit-tags" />
           </div>
         </div>
         <div style="margin-bottom:10px;">
-          <label>읽기 본문</label>
+          <label id="kr-lbl-edit-content">읽기 본문</label>
           <textarea id="kr-edit-content" rows="5" required></textarea>
         </div>
         <div style="display:flex; gap:8px;">
-          <button type="submit" style="background:#d97706;">수정 내용 저장</button>
-          <button type="button" class="secondary" onclick="closeEditReadingPassage()">취소</button>
+          <button type="submit" id="kr-btn-edit-save" style="background:#d97706;">수정 내용 저장</button>
+          <button type="button" id="kr-btn-edit-cancel" class="secondary" onclick="closeEditReadingPassage()">취소</button>
         </div>
       </form>
     </div>
 
     <!-- 4-3. 새 지문 등록 폼 -->
     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px; margin-bottom:16px;">
-      <h4 style="margin:0 0 10px 0;">새 읽기 지문 등록</h4>
+      <h4 id="kr-new-box-title" style="margin:0 0 10px 0;">새 읽기 지문 등록</h4>
       <form onsubmit="handleCreateReadingPassage(event)">
         <div class="row" style="margin-bottom:10px;">
           <div style="flex:2;">
-            <label>소속 그룹 (선택)</label>
-            <select id="kr-new-group-id">
-              <option value="">단독 지문 (그룹 없음)</option>
+            <label id="kr-lbl-new-group">소속 그룹</label>
+            <select id="kr-new-group">
+              <option value="">그룹 없음 (단독 지문)</option>
             </select>
           </div>
           <div style="flex:0.8;">
-            <label>그룹 내 순서</label>
-            <input type="number" id="kr-new-group-order" value="1" min="1" />
+            <label id="kr-lbl-new-order">그룹 내 순서</label>
+            <input type="number" id="kr-new-order" value="1" min="1" />
           </div>
           <div style="flex:1;">
-            <label>난이도</label>
+            <label id="kr-lbl-new-level">난이도</label>
             <select id="kr-new-level">
               <option value="초급">초급</option>
               <option value="중급">중급</option>
@@ -267,23 +303,45 @@
         </div>
         <div class="row" style="margin-bottom:10px;">
           <div style="flex:2;">
-            <label>제목</label>
-            <input type="text" id="kr-new-title" placeholder="지문 제목" required />
+            <label id="kr-lbl-new-title">제목</label>
+            <input type="text" id="kr-new-title" required />
           </div>
           <div style="flex:1;">
-            <label>태그 (쉼표 구분)</label>
-            <input type="text" id="kr-new-tags" placeholder="예: 일상, 여행" />
+            <label id="kr-lbl-new-tags">태그 (쉼표 구분)</label>
+            <input type="text" id="kr-new-tags" />
           </div>
         </div>
         <div style="margin-bottom:10px;">
-          <label>읽기 본문</label>
-          <textarea id="kr-new-content" rows="5" placeholder="학습자가 소리 내어 읽을 한국어 문장을 입력하세요." required></textarea>
+          <label id="kr-lbl-new-content">읽기 본문</label>
+          <textarea id="kr-new-content" rows="5" required></textarea>
         </div>
-        <button type="submit">지문 등록하기</button>
+        <button type="submit" id="kr-btn-new-submit">지문 등록하기</button>
       </form>
     </div>
 
-    <!-- 4-4. 등록된 지문 목록 -->
-    <div id="kr-admin-passage-list"></div>
+    <!-- 4-4. 등록된 지문 필터(단일 그룹 선택) + 검색 + 페이지네이션 -->
+    <div style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px;">
+      <div class="row" style="margin-bottom:10px;">
+        <div style="flex:1.5;">
+          <select id="kr-admin-filter-group" onchange="loadAdminReadingPassages(1)">
+            <option value="">전체 그룹 지문 보기</option>
+          </select>
+        </div>
+        <div style="flex:2;">
+          <input type="text" id="kr-admin-filter-q" placeholder="등록된 지문 제목 검색..." oninput="loadAdminReadingPassages(1)" />
+        </div>
+        <div style="flex:0.7;">
+          <select id="kr-admin-pagesize" onchange="renderAdminReadingPassagesPage(1)">
+            <option value="10" selected>10개씩</option>
+            <option value="20">20개씩</option>
+            <option value="50">50개씩</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="kr-admin-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+      <div id="kr-admin-passage-list"></div>
+      <div id="kr-admin-passage-pagination" style="margin-top:12px;"></div>
+    </div>
   </div>
 </div>

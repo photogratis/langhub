@@ -164,6 +164,35 @@ def create_reading_passage(
         raise HTTPException(status_code=500, detail="지문 등록에 실패했습니다.")
     return res.data[0]
 
+@router.get("/passages")
+def list_reading_passages(
+    group_id: Optional[str] = Query(None),
+    level: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    user: Optional[dict] = Depends(require_module_access("korean_reading")),
+):
+    query = (
+        supabase.table("reading_passages")
+        .select("*, reading_passage_groups(id, title, title_id, description, level)")
+        .order("group_order", desc=False)
+        .order("created_at", desc=True)
+    )
+
+    if group_id == "UNGROUPED":
+        query = query.is_("group_id", "null")
+    elif group_id:
+        query = query.eq("group_id", group_id)
+
+    if level:
+        query = query.eq("level", level)
+    if tag:
+        query = query.contains("tags", [tag])
+    if q:
+        query = query.ilike("title", f"%{q}%")
+
+    res = query.execute()
+    return res.data or []
 
 # 2-1. 지문 수정 (관리자 또는 본인 작성 선생님)
 @router.patch("/passages/{passage_id}")
