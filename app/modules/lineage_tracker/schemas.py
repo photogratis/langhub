@@ -2,20 +2,33 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 
-class ClanCreate(BaseModel):
-    server_name: str = Field("기본서버", min_length=1, max_length=100)
+# 1. 서버 마스터 (독립)
+class ServerUpsert(BaseModel):
+    server_name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field("", max_length=300)
+
+
+# 2. 혈맹 마스터 (독립, 선택적 연결용)
+class ClanUpsert(BaseModel):
     clan_name: str = Field(..., min_length=1, max_length=100)
     description: str = Field("", max_length=300)
 
 
-class CharacterCreate(BaseModel):
-    clan_id: Optional[str] = None
+# 3. 게임 계정 마스터 (독립)
+class AccountUpsert(BaseModel):
     account_name: str = Field(..., min_length=1, max_length=100)
+    memo: str = Field("", max_length=300)
+
+
+# 4. 캐릭터 마스터 (서버 + 계정 필수, 혈맹 선택, 레벨 입력 제거)
+class CharacterUpsert(BaseModel):
+    server_id: str = Field(..., min_length=1)
+    account_id: str = Field(..., min_length=1)
+    clan_id: Optional[str] = None
     character_name: str = Field(..., min_length=1, max_length=100)
-    current_level: int = Field(1, ge=1)
-    current_exp: float = Field(0.0, ge=0)
 
 
+# 5. 아이템 단가 마스터
 class ItemUpsert(BaseModel):
     item_name: str = Field(..., min_length=1, max_length=150)
     adena_unit_price: float = Field(..., ge=0)

@@ -55,7 +55,7 @@
       <form onsubmit="handleStartLineageSession(event)">
         <div class="row" style="margin-bottom:10px;">
           <div>
-            <label>계정 및 캐릭터 선택 (DB)</label>
+            <label>서버 · 계정 · 캐릭터 선택 (DB)</label>
             <select id="ln-start-char" required onchange="onSelectStartCharacter()"></select>
           </div>
           <div>
@@ -99,10 +99,10 @@
         <div class="row" style="margin-bottom:8px;">
           <div>
             <label>대상 캐릭터</label>
-            <select id="ln-tx-char" required onchange="loadAllInventoriesView()"></select>
+            <select id="ln-tx-char" required onchange="onChangeTxCharacter()"></select>
           </div>
           <div>
-            <label>혈맹 선택 (혈맹창고 이동 시)</label>
+            <label>혈맹 선택 (혈맹창고 이용 시)</label>
             <select id="ln-tx-clan" onchange="loadAllInventoriesView()"></select>
           </div>
           <div>
@@ -141,7 +141,7 @@
       </form>
     </div>
 
-    <!-- 현재 재고 3단 비교 (캐릭터 인벤토리 / 개인창고 / 혈맹창고) -->
+    <!-- 현재 재고 3단 비교 -->
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:12px; margin-bottom:16px;">
       <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
         <h5 style="margin:0 0 8px 0; color:#1e293b;">🎒 캐릭터 인벤토리 현황</h5>
@@ -182,7 +182,7 @@
   </div>
 
   <!-- =========================================================
-       탭 4: LINEAGE_ADMIN 전용 관리 · 수량 보정 · IDR 정산
+       탭 4: LINEAGE_ADMIN 전용 관리 · 보정 · IDR 정산
   ========================================================= -->
   <div id="ln-view-admin" class="hidden ln-admin-only">
     <!-- 1. 수량 불일치 보정 (LINEAGE_ADMIN 전용) -->
@@ -226,7 +226,7 @@
     </div>
 
     <!-- 2. 기간별 게이머 시간당 아데나 집계 & IDR 급여 책정·지급 -->
-    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px; margin-bottom:16px;">
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px; margin-bottom:18px;">
       <h4 style="margin-top:0; color:#166534;">💸 게이머별 시간당 획득 아데나 집계 및 루피아(IDR) 급여 지급</h4>
       <div class="row" style="margin-bottom:10px; align-items:flex-end;">
         <div>
@@ -244,59 +244,143 @@
       <div id="ln-worker-summary-list"></div>
     </div>
 
-    <!-- 3. 마스터 관리 (아이템 아데나 시세 / 계정·캐릭터 / 서버·혈맹) -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
-      <!-- 아이템 아데나 단가 등록 -->
+    <!-- 3. 독립 마스터 관리 영역 (서버 / 혈맹 / 계정 / 캐릭터 / 아이템 단가 각각 등록·수정·삭제) -->
+    <h4 style="margin:0 0 10px 0; color:#0f172a;">⚙️ 기준 정보 마스터 관리 (서버 · 혈맹 · 계정 · 캐릭터 · 아이템 단가)</h4>
+
+    <!-- [1단] 서버 목록 & 혈맹 목록 (각각 독립) -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; margin-bottom:14px;">
+      <!-- 서버 관리 카드 -->
       <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
-        <h5 style="margin-top:0;">💎 아이템 아데나 환산 단가 등록/수정</h5>
-        <form onsubmit="handleUpsertLineageItem(event)">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h5 id="ln-srv-form-title" style="margin:0;">🌐 서버 등록 및 목록</h5>
+          <button type="button" id="ln-srv-cancel-btn" class="secondary hidden" style="padding:3px 8px; font-size:11.5px;" onclick="cancelEditServer()">수정 취소</button>
+        </div>
+        <form onsubmit="handleSaveLineageServer(event)" style="margin-bottom:10px;">
+          <div class="row" style="margin-bottom:6px;">
+            <div>
+              <label>서버명</label>
+              <input type="text" id="ln-srv-name" required placeholder="예: 데포로쥬01" />
+            </div>
+            <div>
+              <label>설명 (선택)</label>
+              <input type="text" id="ln-srv-desc" placeholder="서버 메모" />
+            </div>
+          </div>
+          <button type="submit" id="ln-srv-submit-btn" style="width:100%;">서버 등록</button>
+        </form>
+        <div id="ln-admin-servers-list" style="max-height:190px; overflow-y:auto; border-top:1px solid #e2e8f0; padding-top:8px;"></div>
+      </div>
+
+      <!-- 혈맹 관리 카드 (선택적 독립 목록) -->
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h5 id="ln-clan-form-title" style="margin:0;">🏰 혈맹 등록 및 목록 (선택 사항)</h5>
+          <button type="button" id="ln-clan-cancel-btn" class="secondary hidden" style="padding:3px 8px; font-size:11.5px;" onclick="cancelEditClan()">수정 취소</button>
+        </div>
+        <form onsubmit="handleSaveLineageClan(event)" style="margin-bottom:10px;">
+          <div class="row" style="margin-bottom:6px;">
+            <div>
+              <label>혈맹명</label>
+              <input type="text" id="ln-clan-name" required placeholder="예: 붉은기사단" />
+            </div>
+            <div>
+              <label>설명 (선택)</label>
+              <input type="text" id="ln-clan-desc" placeholder="혈맹 메모" />
+            </div>
+          </div>
+          <button type="submit" id="ln-clan-submit-btn" style="width:100%;">혈맹 등록</button>
+        </form>
+        <div id="ln-admin-clans-list" style="max-height:190px; overflow-y:auto; border-top:1px solid #e2e8f0; padding-top:8px;"></div>
+      </div>
+    </div>
+
+    <!-- [2단] 게임 계정 목록 & 캐릭터 목록 (계정은 독립, 캐릭터는 서버+계정 연결 & 혈맹 선택) -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; margin-bottom:14px;">
+      <!-- 게임 계정 관리 카드 -->
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h5 id="ln-acc-form-title" style="margin:0;">🔑 게임 계정 등록 및 목록</h5>
+          <button type="button" id="ln-acc-cancel-btn" class="secondary hidden" style="padding:3px 8px; font-size:11.5px;" onclick="cancelEditAccount()">수정 취소</button>
+        </div>
+        <form onsubmit="handleSaveLineageAccount(event)" style="margin-bottom:10px;">
+          <div class="row" style="margin-bottom:6px;">
+            <div>
+              <label>게임 계정명</label>
+              <input type="text" id="ln-acc-name" required placeholder="예: acc_worker_01" />
+            </div>
+            <div>
+              <label>계정 메모 (선택)</label>
+              <input type="text" id="ln-acc-memo" placeholder="구글/NC계정 구분 등" />
+            </div>
+          </div>
+          <button type="submit" id="ln-acc-submit-btn" style="width:100%;">계정 등록</button>
+        </form>
+        <div id="ln-admin-accounts-list" style="max-height:220px; overflow-y:auto; border-top:1px solid #e2e8f0; padding-top:8px;"></div>
+      </div>
+
+      <!-- 캐릭터 관리 카드 (레벨 입력 제거, 서버·계정 필수, 혈맹 선택) -->
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h5 id="ln-char-form-title" style="margin:0;">🧙 캐릭터 등록 및 목록</h5>
+          <button type="button" id="ln-char-cancel-btn" class="secondary hidden" style="padding:3px 8px; font-size:11.5px;" onclick="cancelEditCharacter()">수정 취소</button>
+        </div>
+        <form onsubmit="handleSaveLineageCharacter(event)" style="margin-bottom:10px;">
+          <div class="row" style="margin-bottom:6px;">
+            <div>
+              <label>소속 서버 (필수)</label>
+              <select id="ln-char-server" required></select>
+            </div>
+            <div>
+              <label>소속 계정 (필수)</label>
+              <select id="ln-char-account" required></select>
+            </div>
+          </div>
+          <div class="row" style="margin-bottom:6px;">
+            <div>
+              <label>캐릭터명 (필수)</label>
+              <input type="text" id="ln-char-name" required placeholder="예: 데포로쥬기사" />
+            </div>
+            <div>
+              <label>소속 혈맹 (선택 · 없음 가능)</label>
+              <select id="ln-char-clan"></select>
+            </div>
+          </div>
+          <button type="submit" id="ln-char-submit-btn" style="width:100%;">캐릭터 등록</button>
+        </form>
+        <div id="ln-admin-characters-list" style="max-height:220px; overflow-y:auto; border-top:1px solid #e2e8f0; padding-top:8px;"></div>
+      </div>
+    </div>
+
+    <!-- [3단] 아이템 아데나 환산 단가 관리 -->
+    <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h5 id="ln-item-form-title" style="margin:0;">💎 아이템 아데나 환산 단가 등록 및 목록</h5>
+        <button type="button" id="ln-item-cancel-btn" class="secondary hidden" style="padding:3px 8px; font-size:11.5px;" onclick="cancelEditItem()">수정 취소</button>
+      </div>
+      <form onsubmit="handleSaveLineageItem(event)" class="row" style="margin-bottom:10px; align-items:flex-end;">
+        <div style="flex:2;">
           <label>아이템명</label>
-          <input type="text" id="ln-item-name" required placeholder="예: 축복받은 무기 마법 주문서" style="margin-bottom:6px;" />
+          <input type="text" id="ln-item-name" required placeholder="예: 축복받은 무기 마법 주문서" />
+        </div>
+        <div style="flex:1.5;">
           <label>1개당 아데나 가치 (Adena)</label>
-          <input type="number" id="ln-item-price" step="0.01" min="0" required placeholder="예: 250000" style="margin-bottom:6px;" />
+          <input type="number" id="ln-item-price" step="0.01" min="0" required placeholder="예: 250000" />
+        </div>
+        <div style="flex:1;">
           <label>분류</label>
-          <select id="ln-item-cat" style="margin-bottom:8px;">
+          <select id="ln-item-cat">
             <option value="재화">재화</option>
             <option value="주문서">주문서</option>
             <option value="장비">장비</option>
             <option value="재료">재료</option>
             <option value="기타">기타</option>
           </select>
-          <button type="submit" style="width:100%;">단가 저장</button>
-        </form>
-      </div>
-
-      <!-- 게임 계정 및 캐릭터 등록 -->
-      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
-        <h5 style="margin-top:0;">🧙 게임 계정 및 캐릭터 등록</h5>
-        <form onsubmit="handleCreateLineageCharacter(event)">
-          <label>소속 서버 / 혈맹</label>
-          <select id="ln-char-clan" style="margin-bottom:6px;"></select>
-          <label>게임 계정명</label>
-          <input type="text" id="ln-char-account" required placeholder="예: lineage_acc_01" style="margin-bottom:6px;" />
-          <label>캐릭터명</label>
-          <input type="text" id="ln-char-name" required placeholder="예: 데포로쥬기사" style="margin-bottom:6px;" />
-          <div class="row" style="margin-bottom:8px;">
-            <div><label>현재 레벨</label><input type="number" id="ln-char-level" value="1" min="1" /></div>
-            <div><label>경험치(%)</label><input type="number" id="ln-char-exp" value="0" step="0.0001" min="0" /></div>
-          </div>
-          <button type="submit" style="width:100%;">캐릭터 등록</button>
-        </form>
-      </div>
-
-      <!-- 서버 및 혈맹 추가 -->
-      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
-        <h5 style="margin-top:0;">🏰 서버 및 혈맹 추가 (확장용)</h5>
-        <form onsubmit="handleCreateLineageClan(event)">
-          <label>서버명</label>
-          <input type="text" id="ln-clan-server" value="기본서버" required style="margin-bottom:6px;" />
-          <label>혈맹명</label>
-          <input type="text" id="ln-clan-name" required placeholder="예: 제2작업혈맹" style="margin-bottom:6px;" />
-          <label>설명</label>
-          <input type="text" id="ln-clan-desc" placeholder="메모" style="margin-bottom:8px;" />
-          <button type="submit" style="width:100%;">서버/혈맹 추가</button>
-        </form>
-      </div>
+        </div>
+        <div style="flex:1;">
+          <button type="submit" id="ln-item-submit-btn" style="width:100%;">단가 등록</button>
+        </div>
+      </form>
+      <div id="ln-admin-items-list" style="max-height:220px; overflow-y:auto; border-top:1px solid #e2e8f0; padding-top:8px;"></div>
     </div>
   </div>
 </div>

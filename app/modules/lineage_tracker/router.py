@@ -4,12 +4,14 @@ from app.core.database import supabase
 from app.core.module_guard import require_module_access
 from app.base.auth.dependencies import get_current_user
 from app.modules.lineage_tracker.schemas import (
+    AccountUpsert,
     AdminInventoryAdjustRequest,
-    CharacterCreate,
-    ClanCreate,
+    CharacterUpsert,
+    ClanUpsert,
     ItemTransactionCreate,
     ItemUpsert,
     PayoutCreateRequest,
+    ServerUpsert,
     SessionEndRequest,
     SessionStartRequest,
 )
@@ -44,12 +46,12 @@ def require_lineage_admin(current_user: dict = Depends(get_current_user)) -> dic
 
 
 # =========================================================
-# 1. 마스터 데이터 (서버/혈맹, 계정/캐릭터, 아이템 아데나 시세)
+# 1. 마스터 데이터 통합 조회 (서버 / 혈맹 / 계정 / 캐릭터 / 아이템)
 # =========================================================
 @router.get("/bootstrap")
 def get_lineage_bootstrap(user: dict = Depends(require_lineage_member)):
-    clans = (
-        supabase.table("lineage_clans")
+    servers = (
+        supabase.table("lineage_servers")
         .select("*")
         .eq("is_active", True)
         .order("server_name")
@@ -57,11 +59,31 @@ def get_lineage_bootstrap(user: dict = Depends(require_lineage_member)):
         .data
         or []
     )
-    chars = (
-        supabase.table("lineage_characters")
-        .select("*, lineage_clans(server_name, clan_name)")
+    clans = (
+        supabase.table("lineage_clans")
+        .select("*")
+        .eq("is_active", True)
+        .order("clan_name")
+        .execute()
+        .data
+        or []
+    )
+    accounts = (
+        supabase.table("lineage_accounts")
+        .select("*")
         .eq("is_active", True)
         .order("account_name")
+        .execute()
+        .data
+        or []
+    )
+    chars = (
+        supabase.table("lineage_characters")
+        .select(
+            "*, lineage_servers(id, server_name), lineage_accounts(id, account_name), lineage_clans(id, clan_name)"
+        )
+        .eq("is_active", True)
+        .order("character_name")
         .execute()
         .data
         or []
@@ -78,29 +100,138 @@ def get_lineage_bootstrap(user: dict = Depends(require_lineage_member)):
     grade = str(user.get("grade") or "").strip().upper()
     return {
         "is_lineage_admin": grade in ("LINEAGE_ADMIN", "ADMIN"),
+        "servers": servers,
         "clans": clans,
+        "accounts": accounts,
         "characters": chars,
         "items": items,
     }
 
 
+# --- [서버 CRUD] ---
+@router.post("/servers")
+def create_server(req: ServerUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {"server_name": req.server_name.strip(), "description": req.description.strip()}
+    try:
+        res = supabase.table("lineage_servers").insert(payload).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"서버 등록 실패 (중복 여부 확인): {str(e)}")
+
+
+@router.patch("/servers/{server_id}")
+def update_server(server_id: str, req: ServerUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {"server_name": req.server_name.strip(), "description": req.description.strip()}
+    res = supabase.table("lineage_servers").update(payload).eq("id", server_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="서버를 찾을 수 없습니다.")
+    return res.data[0]
+
+
+@router.delete("/servers/{server_id}")
+def delete_server(server_id: str, admin: dict = Depends(require_lineage_admin)):
+    linked = supabase.table("lineage_characters").select("id").eq("server_id", server_id).limit(1).execute().data
+    if linked:
+        raise HTTPException(status_code=400, detail="이 서버에 소속된 캐릭터가 있어 삭제할 수 없습니다.")
+    supabase.table("lineage_servers").delete().eq("id", server_id).execute()
+    return {"message": "서버가 삭제되었습니다."}
+
+
+# --- [혈맹 CRUD (독립 목록)] ---
 @router.post("/clans")
-def create_clan(req: ClanCreate, admin: dict = Depends(require_lineage_admin)):
-    res = supabase.table("lineage_clans").insert(req.model_dump()).execute()
+def create_clan(req: ClanUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {"clan_name": req.clan_name.strip(), "description": req.description.strip()}
+    try:
+        res = supabase.table("lineage_clans").insert(payload).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"혈맹 등록 실패 (중복 여부 확인): {str(e)}")
+
+
+@router.patch("/clans/{clan_id}")
+def update_clan(clan_id: str, req: ClanUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {"clan_name": req.clan_name.strip(), "description": req.description.strip()}
+    res = supabase.table("lineage_clans").update(payload).eq("id", clan_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="혈맹을 찾을 수 없습니다.")
     return res.data[0]
 
 
+@router.delete("/clans/{clan_id}")
+def delete_clan(clan_id: str, admin: dict = Depends(require_lineage_admin)):
+    # 캐릭터의 clan_id는 ON DELETE SET NULL 로 자동 해제됨
+    supabase.table("lineage_clans").delete().eq("id", clan_id).execute()
+    return {"message": "혈맹이 삭제되었습니다."}
+
+
+# --- [게임 계정 CRUD (서버 비의존 독립 목록)] ---
+@router.post("/accounts")
+def create_account(req: AccountUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {"account_name": req.account_name.strip(), "memo": req.memo.strip()}
+    try:
+        res = supabase.table("lineage_accounts").insert(payload).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"계정 등록 실패 (중복 여부 확인): {str(e)}")
+
+
+@router.patch("/accounts/{account_id}")
+def update_account(account_id: str, req: AccountUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {"account_name": req.account_name.strip(), "memo": req.memo.strip()}
+    res = supabase.table("lineage_accounts").update(payload).eq("id", account_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="계정을 찾을 수 없습니다.")
+    return res.data[0]
+
+
+@router.delete("/accounts/{account_id}")
+def delete_account(account_id: str, admin: dict = Depends(require_lineage_admin)):
+    linked = supabase.table("lineage_characters").select("id").eq("account_id", account_id).limit(1).execute().data
+    if linked:
+        raise HTTPException(status_code=400, detail="이 계정에 소속된 캐릭터가 있어 삭제할 수 없습니다.")
+    supabase.table("lineage_accounts").delete().eq("id", account_id).execute()
+    return {"message": "계정이 삭제되었습니다."}
+
+
+# --- [캐릭터 CRUD (서버 + 계정 연결, 혈맹 선택, 레벨 입력 없음)] ---
 @router.post("/characters")
-def create_character(req: CharacterCreate, admin: dict = Depends(require_lineage_admin)):
-    payload = req.model_dump()
-    if not payload.get("clan_id"):
-        default_clan = supabase.table("lineage_clans").select("id").limit(1).execute().data
-        if default_clan:
-            payload["clan_id"] = default_clan[0]["id"]
-    res = supabase.table("lineage_characters").insert(payload).execute()
+def create_character(req: CharacterUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {
+        "server_id": req.server_id,
+        "account_id": req.account_id,
+        "clan_id": (req.clan_id or "").strip() or None,
+        "character_name": req.character_name.strip(),
+    }
+    try:
+        res = supabase.table("lineage_characters").insert(payload).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"캐릭터 등록 실패: {str(e)}")
+
+
+@router.patch("/characters/{character_id}")
+def update_character(
+    character_id: str, req: CharacterUpsert, admin: dict = Depends(require_lineage_admin)
+):
+    payload = {
+        "server_id": req.server_id,
+        "account_id": req.account_id,
+        "clan_id": (req.clan_id or "").strip() or None,
+        "character_name": req.character_name.strip(),
+    }
+    res = supabase.table("lineage_characters").update(payload).eq("id", character_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다.")
     return res.data[0]
 
 
+@router.delete("/characters/{character_id}")
+def delete_character(character_id: str, admin: dict = Depends(require_lineage_admin)):
+    supabase.table("lineage_characters").delete().eq("id", character_id).execute()
+    return {"message": "캐릭터가 삭제되었습니다."}
+
+
+# --- [아이템 단가 CRUD] ---
 @router.post("/items")
 def upsert_item_price(req: ItemUpsert, admin: dict = Depends(require_lineage_admin)):
     payload = {
@@ -116,6 +247,28 @@ def upsert_item_price(req: ItemUpsert, admin: dict = Depends(require_lineage_adm
     return res.data[0]
 
 
+@router.patch("/items/{item_id}")
+def update_item_price(item_id: str, req: ItemUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {
+        "item_name": req.item_name.strip(),
+        "adena_unit_price": req.adena_unit_price,
+        "category": req.category.strip() or "기타",
+    }
+    res = supabase.table("lineage_items").update(payload).eq("id", item_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="아이템을 찾을 수 없습니다.")
+    return res.data[0]
+
+
+@router.delete("/items/{item_id}")
+def delete_item_price(item_id: str, admin: dict = Depends(require_lineage_admin)):
+    existing = supabase.table("lineage_items").select("item_name").eq("id", item_id).execute().data
+    if existing and existing[0].get("item_name") == "아데나":
+        raise HTTPException(status_code=400, detail="기본 재화 '아데나'는 삭제할 수 없습니다.")
+    supabase.table("lineage_items").delete().eq("id", item_id).execute()
+    return {"message": "아이템이 삭제되었습니다."}
+
+
 # =========================================================
 # 2. 인벤토리 및 개인/혈맹 창고 현황 조회
 # =========================================================
@@ -126,7 +279,7 @@ def list_inventories(
     user: dict = Depends(require_lineage_member),
 ):
     query = supabase.table("lineage_inventories").select(
-        "*, lineage_items(item_name, adena_unit_price, category), lineage_characters(account_name, character_name), lineage_clans(server_name, clan_name)"
+        "*, lineage_items(item_name, adena_unit_price, category), lineage_characters(character_name), lineage_clans(clan_name)"
     )
     res = query.execute().data or []
 
@@ -150,7 +303,9 @@ def list_inventories(
 def get_my_active_session(user: dict = Depends(require_lineage_member)):
     res = (
         supabase.table("lineage_play_sessions")
-        .select("*, lineage_characters(account_name, character_name, clan_id)")
+        .select(
+            "*, lineage_characters(character_name, clan_id, lineage_servers(server_name), lineage_accounts(account_name))"
+        )
         .eq("user_id", str(user["id"]))
         .eq("status", "PLAYING")
         .order("started_at", desc=True)
@@ -248,7 +403,7 @@ def list_play_sessions(
     is_admin = grade in ("LINEAGE_ADMIN", "ADMIN")
 
     query = supabase.table("lineage_play_sessions").select(
-        "*, lineage_characters(account_name, character_name, lineage_clans(server_name, clan_name))"
+        "*, lineage_characters(character_name, lineage_servers(server_name), lineage_accounts(account_name), lineage_clans(clan_name))"
     ).order("started_at", desc=True)
 
     if not is_admin or only_mine:
@@ -285,7 +440,7 @@ def list_item_transactions(user: dict = Depends(require_lineage_member)):
     res = (
         supabase.table("lineage_item_transactions")
         .select(
-            "*, lineage_items(item_name), lineage_characters(account_name, character_name), lineage_clans(server_name, clan_name)"
+            "*, lineage_items(item_name), lineage_characters(character_name), lineage_clans(clan_name)"
         )
         .order("created_at", desc=True)
         .limit(100)
@@ -341,7 +496,7 @@ def list_inventory_adjustments(user: dict = Depends(require_lineage_member)):
     res = (
         supabase.table("lineage_inventory_adjustments")
         .select(
-            "*, lineage_items(item_name), lineage_characters(account_name, character_name), lineage_clans(server_name, clan_name)"
+            "*, lineage_items(item_name), lineage_characters(character_name), lineage_clans(clan_name)"
         )
         .order("created_at", desc=True)
         .limit(100)

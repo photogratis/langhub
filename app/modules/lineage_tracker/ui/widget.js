@@ -1,6 +1,20 @@
-var lnBootstrap = { is_lineage_admin: false, clans: [], characters: [], items: [] };
+var lnBootstrap = {
+  is_lineage_admin: false,
+  servers: [],
+  clans: [],
+  accounts: [],
+  characters: [],
+  items: [],
+};
 var lnActiveSession = null;
 var lnAllInventories = [];
+
+// 관리자 수정 모드 ID 상태
+var editingLnServerId = null;
+var editingLnClanId = null;
+var editingLnAccountId = null;
+var editingLnCharacterId = null;
+var editingLnItemId = null;
 
 function toLocalDatetimeInputValue(dateObj = new Date()) {
   const pad = n => String(n).padStart(2, "0");
@@ -17,20 +31,7 @@ function fmtIdr(val) {
 
 async function initLineageTrackerModule() {
   clearMsg();
-  const res = await fetch("/api/v1/modules/lineage_tracker/bootstrap", {
-    headers: getAuthHeaders(false),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    return showMsg(err.detail || "LINEAGE 등급 접근 권한이 필요합니다.", true);
-  }
-  lnBootstrap = await res.json();
-
-  document.querySelectorAll(".ln-admin-only").forEach(el => {
-    el.classList.toggle("hidden", !lnBootstrap.is_lineage_admin);
-  });
-
-  populateLineageSelectors();
+  await reloadLineageBootstrap();
 
   // 기본 정산 조회 기간 (이번 달 1일 ~ 오늘)
   const today = new Date();
@@ -43,15 +44,46 @@ async function initLineageTrackerModule() {
   switchLineageTab("play");
 }
 
+async function reloadLineageBootstrap() {
+  const res = await fetch("/api/v1/modules/lineage_tracker/bootstrap", {
+    headers: getAuthHeaders(false),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    showMsg(err.detail || "LINEAGE 등급 접근 권한이 필요합니다.", true);
+    return;
+  }
+  lnBootstrap = await res.json();
+
+  document.querySelectorAll(".ln-admin-only").forEach(el => {
+    el.classList.toggle("hidden", !lnBootstrap.is_lineage_admin);
+  });
+
+  populateLineageSelectors();
+  renderAdminMasterLists();
+}
+
 function populateLineageSelectors() {
-  const clanOpts = lnBootstrap.clans
-    .map(c => `<option value="${c.id}">[${c.server_name}] ${c.clan_name}</option>`)
+  const serverOpts = lnBootstrap.servers
+    .map(s => `<option value="${s.id}">${s.server_name}</option>`)
+    .join("");
+
+  const clanOptsOptional =
+    `<option value="">(혈맹 없음 / 선택 안 함)</option>` +
+    lnBootstrap.clans
+      .map(c => `<option value="${c.id}">🏰 ${c.clan_name}</option>`)
+      .join("");
+
+  const accountOpts = lnBootstrap.accounts
+    .map(a => `<option value="${a.id}">${a.account_name}</option>`)
     .join("");
 
   const charOpts = lnBootstrap.characters
     .map(ch => {
-      const srv = ch.lineage_clans ? `[${ch.lineage_clans.server_name}/${ch.lineage_clans.clan_name}] ` : "";
-      return `<option value="${ch.id}">${srv}${ch.account_name} - ${ch.character_name} (Lv.${ch.current_level})</option>`;
+      const srv = ch.lineage_servers?.server_name || "서버미지정";
+      const acc = ch.lineage_accounts?.account_name || "계정미지정";
+      const clan = ch.lineage_clans?.clan_name ? ` · 🏰${ch.lineage_clans.clan_name}` : "";
+      return `<option value="${ch.id}">[${srv}] ${acc} / ${ch.character_name}${clan}</option>`;
     })
     .join("");
 
@@ -59,9 +91,15 @@ function populateLineageSelectors() {
     .map(it => `<option value="${it.id}">${it.item_name} (${fmtNum(it.adena_unit_price)} 아데나)</option>`)
     .join("");
 
+  const srvEl = document.getElementById("ln-char-server");
+  if (srvEl) srvEl.innerHTML = serverOpts;
+
+  const accEl = document.getElementById("ln-char-account");
+  if (accEl) accEl.innerHTML = accountOpts;
+
   ["ln-tx-clan", "ln-adj-clan", "ln-char-clan"].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = clanOpts;
+    if (el) el.innerHTML = clanOptsOptional;
   });
 
   ["ln-start-char", "ln-tx-char", "ln-adj-char"].forEach(id => {
@@ -91,12 +129,13 @@ function switchLineageTab(tabName) {
   if (tabName === "play") {
     loadPlaySessionView();
   } else if (tabName === "storage") {
-    loadAllInventoriesView();
+    onChangeTxCharacter();
     loadLineageTransactionsAndLogs();
   } else if (tabName === "history") {
     loadPlaySessionsHistory();
     loadMyIdrPayouts();
   } else if (tabName === "admin") {
+    renderAdminMasterLists();
     loadWorkerPayoutSummary();
   }
 }
@@ -154,8 +193,10 @@ async function loadPlaySessionView() {
     startBox.classList.add("hidden");
 
     const ch = lnActiveSession.lineage_characters || {};
+    const srvName = ch.lineage_servers?.server_name || "";
+    const accName = ch.lineage_accounts?.account_name || "";
     document.getElementById("ln-active-char-badge").textContent =
-      `${ch.account_name || ""} - ${ch.character_name || ""}`;
+      `[${srvName}] ${accName} - ${ch.character_name || ""}`;
     document.getElementById("ln-active-start-summary").innerHTML =
       `시작 시각: <b>${new Date(lnActiveSession.started_at).toLocaleString()}</b> · ` +
       `시작 레벨: <b>Lv.${lnActiveSession.start_level}</b> (${lnActiveSession.start_exp}%)`;
@@ -265,6 +306,16 @@ async function handleEndLineageSession(e) {
 /* =========================================================
    탭 2: 개인/혈맹 창고 입출고 & 판매/이전
 ========================================================= */
+function onChangeTxCharacter() {
+  const charId = document.getElementById("ln-tx-char")?.value;
+  const ch = lnBootstrap.characters.find(c => String(c.id) === String(charId));
+  const clanSel = document.getElementById("ln-tx-clan");
+  if (ch && clanSel) {
+    clanSel.value = ch.clan_id || "";
+  }
+  loadAllInventoriesView();
+}
+
 function toggleTxSaleField() {
   const t = document.getElementById("ln-tx-type")?.value;
   document.getElementById("ln-tx-sale-box")?.classList.toggle("hidden", t !== "SELL");
@@ -295,8 +346,9 @@ async function handleCreateLineageTransaction(e) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return showMsg(data.detail || "창고/판매 처리 실패", true);
 
-  e.target.reset();
-  toggleTxSaleField();
+  document.getElementById("ln-tx-qty").value = "";
+  document.getElementById("ln-tx-sale-adena").value = "";
+  document.getElementById("ln-tx-note").value = "";
   showMsg("창고 이동 / 판매 기록이 반영되었습니다.");
   loadAllInventoriesView();
   loadLineageTransactionsAndLogs();
@@ -315,11 +367,11 @@ async function loadAllInventoriesView() {
   });
   lnAllInventories = res.ok ? await res.json() : [];
 
-  const renderBox = (elId, list) => {
+  const renderBox = (elId, list, emptyText = "보유 아이템 없음") => {
     const el = document.getElementById(elId);
     if (!el) return;
     if (!list.length) {
-      el.innerHTML = `<span style="color:#94a3b8;">보유 아이템 없음</span>`;
+      el.innerHTML = `<span style="color:#94a3b8;">${emptyText}</span>`;
       return;
     }
     el.innerHTML = list
@@ -336,7 +388,11 @@ async function loadAllInventoriesView() {
 
   renderBox("ln-inv-character", lnAllInventories.filter(i => i.storage_type === "CHARACTER"));
   renderBox("ln-inv-personal", lnAllInventories.filter(i => i.storage_type === "PERSONAL"));
-  renderBox("ln-inv-clan", lnAllInventories.filter(i => i.storage_type === "CLAN"));
+  renderBox(
+    "ln-inv-clan",
+    clanId ? lnAllInventories.filter(i => i.storage_type === "CLAN") : [],
+    clanId ? "혈맹창고 보유 아이템 없음" : "혈맹을 선택하면 혈맹창고 재고가 표시됩니다."
+  );
 }
 
 async function loadLineageTransactionsAndLogs() {
@@ -407,6 +463,8 @@ async function loadPlaySessionsHistory() {
 
   el.innerHTML = list.map(s => {
     const ch = s.lineage_characters || {};
+    const srv = ch.lineage_servers?.server_name || "";
+    const acc = ch.lineage_accounts?.account_name || "";
     const statusBadge = s.status === "PLAYING"
       ? `<span class="tag" style="background:#f59e0b; color:#fff;">진행 중</span>`
       : (s.has_discrepancy
@@ -419,7 +477,7 @@ async function loadPlaySessionsHistory() {
           <div>
             ${statusBadge}
             <strong style="margin-left:6px;">${s.user_nickname}</strong>
-            <span style="color:#475569; margin-left:4px;">(${ch.account_name || ""} - ${ch.character_name || ""})</span>
+            <span style="color:#475569; margin-left:4px;">([${srv}] ${acc} - ${ch.character_name || ""})</span>
           </div>
           <div style="font-size:13.5px;">
             순수익: <b style="color:#2563eb;">${fmtNum(s.net_earned_adena)} 아데나</b> ·
@@ -476,7 +534,7 @@ async function loadMyIdrPayouts() {
 }
 
 /* =========================================================
-   탭 4: LINEAGE_ADMIN 전용 (보정 / IDR 정산 / 마스터 등록)
+   탭 4: LINEAGE_ADMIN 전용 (보정 / IDR 정산 / 독립 마스터 CRUD)
 ========================================================= */
 function toggleAdjustTargetFields() {
   const st = document.getElementById("ln-adj-storage-type")?.value;
@@ -505,8 +563,8 @@ async function handleAdminAdjustInventory(e) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return showMsg(data.detail || "보정 처리 실패", true);
 
-  e.target.reset();
-  toggleAdjustTargetFields();
+  document.getElementById("ln-adj-after-qty").value = "";
+  document.getElementById("ln-adj-reason").value = "";
   showMsg("수량 보정이 완료되었으며 감사 로그에 영구 기록되었습니다.");
 }
 
@@ -612,58 +670,414 @@ async function submitWorkerIdrPayout(idx, workerObj) {
   showMsg(`${workerObj.worker_nickname}님 지급 기록(${fmtIdr(data.total_paid_idr)})이 저장되었습니다.`);
 }
 
-async function handleUpsertLineageItem(e) {
+/* =========================================================
+   독립 마스터 5종 리스트 렌더링 & 등록/수정/삭제
+========================================================= */
+function renderAdminMasterLists() {
+  // 1. 서버 목록
+  const srvListEl = document.getElementById("ln-admin-servers-list");
+  if (srvListEl) {
+    srvListEl.innerHTML = lnBootstrap.servers.length
+      ? lnBootstrap.servers.map(s => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
+            <div>
+              <b>🌐 ${s.server_name}</b>
+              ${s.description ? `<small style="color:#64748b; margin-left:6px;">${s.description}</small>` : ""}
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditServer('${s.id}')">수정</button>
+              <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageServer('${s.id}')">삭제</button>
+            </div>
+          </div>
+        `).join("")
+      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 서버가 없습니다.</p>`;
+  }
+
+  // 2. 혈맹 목록
+  const clanListEl = document.getElementById("ln-admin-clans-list");
+  if (clanListEl) {
+    clanListEl.innerHTML = lnBootstrap.clans.length
+      ? lnBootstrap.clans.map(c => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
+            <div>
+              <b>🏰 ${c.clan_name}</b>
+              ${c.description ? `<small style="color:#64748b; margin-left:6px;">${c.description}</small>` : ""}
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditClan('${c.id}')">수정</button>
+              <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageClan('${c.id}')">삭제</button>
+            </div>
+          </div>
+        `).join("")
+      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 혈맹이 없습니다. (혈맹 없이도 운영 가능)</p>`;
+  }
+
+  // 3. 계정 목록
+  const accListEl = document.getElementById("ln-admin-accounts-list");
+  if (accListEl) {
+    accListEl.innerHTML = lnBootstrap.accounts.length
+      ? lnBootstrap.accounts.map(a => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
+            <div>
+              <b>🔑 ${a.account_name}</b>
+              ${a.memo ? `<small style="color:#64748b; margin-left:6px;">${a.memo}</small>` : ""}
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditAccount('${a.id}')">수정</button>
+              <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageAccount('${a.id}')">삭제</button>
+            </div>
+          </div>
+        `).join("")
+      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 계정이 없습니다.</p>`;
+  }
+
+  // 4. 캐릭터 목록
+  const charListEl = document.getElementById("ln-admin-characters-list");
+  if (charListEl) {
+    charListEl.innerHTML = lnBootstrap.characters.length
+      ? lnBootstrap.characters.map(ch => {
+          const srv = ch.lineage_servers?.server_name || "서버미지정";
+          const acc = ch.lineage_accounts?.account_name || "계정미지정";
+          const clan = ch.lineage_clans?.clan_name
+            ? `<span class="tag" style="background:#f3e8ff; color:#6b21a8; font-size:11px;">🏰 ${ch.lineage_clans.clan_name}</span>`
+            : `<span style="color:#94a3b8; font-size:11.5px;">혈맹없음</span>`;
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px; gap:6px;">
+              <div>
+                <span class="pos-badge">${srv}</span>
+                <b style="margin-left:4px;">${ch.character_name}</b>
+                <small style="color:#475569; margin-left:4px;">(${acc})</small>
+                ${clan}
+              </div>
+              <div style="display:flex; gap:4px; flex-shrink:0;">
+                <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditCharacter('${ch.id}')">수정</button>
+                <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageCharacter('${ch.id}')">삭제</button>
+              </div>
+            </div>
+          `;
+        }).join("")
+      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 캐릭터가 없습니다.</p>`;
+  }
+
+  // 5. 아이템 단가 목록
+  const itemListEl = document.getElementById("ln-admin-items-list");
+  if (itemListEl) {
+    itemListEl.innerHTML = lnBootstrap.items.length
+      ? lnBootstrap.items.map(it => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
+            <div>
+              <span class="tag">${it.category || "기타"}</span>
+              <b style="margin-left:4px;">${it.item_name}</b>
+              <span style="color:#2563eb; font-weight:700; margin-left:8px;">${fmtNum(it.adena_unit_price)} 아데나</span>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditItem('${it.id}')">수정</button>
+              ${it.item_name !== "아데나" ? `<button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageItem('${it.id}')">삭제</button>` : ""}
+            </div>
+          </div>
+        `).join("")
+      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 아이템이 없습니다.</p>`;
+  }
+}
+
+/* --- 서버 CRUD 핸들러 --- */
+function startEditServer(id) {
+  const item = lnBootstrap.servers.find(s => String(s.id) === String(id));
+  if (!item) return;
+  editingLnServerId = item.id;
+  document.getElementById("ln-srv-name").value = item.server_name || "";
+  document.getElementById("ln-srv-desc").value = item.description || "";
+  document.getElementById("ln-srv-form-title").textContent = "✏️ 서버 수정 중";
+  document.getElementById("ln-srv-submit-btn").textContent = "서버 수정 저장";
+  document.getElementById("ln-srv-submit-btn").style.background = "#d97706";
+  document.getElementById("ln-srv-cancel-btn").classList.remove("hidden");
+}
+
+function cancelEditServer() {
+  editingLnServerId = null;
+  document.getElementById("ln-srv-name").value = "";
+  document.getElementById("ln-srv-desc").value = "";
+  document.getElementById("ln-srv-form-title").textContent = "🌐 서버 등록 및 목록";
+  document.getElementById("ln-srv-submit-btn").textContent = "서버 등록";
+  document.getElementById("ln-srv-submit-btn").style.background = "";
+  document.getElementById("ln-srv-cancel-btn").classList.add("hidden");
+}
+
+async function handleSaveLineageServer(e) {
   e.preventDefault();
+  clearMsg();
+  const payload = {
+    server_name: document.getElementById("ln-srv-name").value.trim(),
+    description: document.getElementById("ln-srv-desc").value.trim(),
+  };
+  const url = editingLnServerId
+    ? `/api/v1/modules/lineage_tracker/servers/${editingLnServerId}`
+    : "/api/v1/modules/lineage_tracker/servers";
+  const res = await fetch(url, {
+    method: editingLnServerId ? "PATCH" : "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "서버 저장 실패", true);
+
+  cancelEditServer();
+  showMsg("서버 정보가 저장되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+async function deleteLineageServer(id) {
+  if (!confirm("이 서버를 삭제하시겠습니까?")) return;
+  const res = await fetch(`/api/v1/modules/lineage_tracker/servers/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "서버 삭제 실패", true);
+  if (editingLnServerId === id) cancelEditServer();
+  showMsg("서버가 삭제되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+/* --- 혈맹 CRUD 핸들러 --- */
+function startEditClan(id) {
+  const item = lnBootstrap.clans.find(c => String(c.id) === String(id));
+  if (!item) return;
+  editingLnClanId = item.id;
+  document.getElementById("ln-clan-name").value = item.clan_name || "";
+  document.getElementById("ln-clan-desc").value = item.description || "";
+  document.getElementById("ln-clan-form-title").textContent = "✏️ 혈맹 수정 중";
+  document.getElementById("ln-clan-submit-btn").textContent = "혈맹 수정 저장";
+  document.getElementById("ln-clan-submit-btn").style.background = "#d97706";
+  document.getElementById("ln-clan-cancel-btn").classList.remove("hidden");
+}
+
+function cancelEditClan() {
+  editingLnClanId = null;
+  document.getElementById("ln-clan-name").value = "";
+  document.getElementById("ln-clan-desc").value = "";
+  document.getElementById("ln-clan-form-title").textContent = "🏰 혈맹 등록 및 목록 (선택 사항)";
+  document.getElementById("ln-clan-submit-btn").textContent = "혈맹 등록";
+  document.getElementById("ln-clan-submit-btn").style.background = "";
+  document.getElementById("ln-clan-cancel-btn").classList.add("hidden");
+}
+
+async function handleSaveLineageClan(e) {
+  e.preventDefault();
+  clearMsg();
+  const payload = {
+    clan_name: document.getElementById("ln-clan-name").value.trim(),
+    description: document.getElementById("ln-clan-desc").value.trim(),
+  };
+  const url = editingLnClanId
+    ? `/api/v1/modules/lineage_tracker/clans/${editingLnClanId}`
+    : "/api/v1/modules/lineage_tracker/clans";
+  const res = await fetch(url, {
+    method: editingLnClanId ? "PATCH" : "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "혈맹 저장 실패", true);
+
+  cancelEditClan();
+  showMsg("혈맹 정보가 저장되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+async function deleteLineageClan(id) {
+  if (!confirm("이 혈맹을 삭제하시겠습니까? (연결된 캐릭터의 혈맹 정보는 '혈맹없음'으로 전환됩니다)")) return;
+  const res = await fetch(`/api/v1/modules/lineage_tracker/clans/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "혈맹 삭제 실패", true);
+  if (editingLnClanId === id) cancelEditClan();
+  showMsg("혈맹이 삭제되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+/* --- 계정 CRUD 핸들러 --- */
+function startEditAccount(id) {
+  const item = lnBootstrap.accounts.find(a => String(a.id) === String(id));
+  if (!item) return;
+  editingLnAccountId = item.id;
+  document.getElementById("ln-acc-name").value = item.account_name || "";
+  document.getElementById("ln-acc-memo").value = item.memo || "";
+  document.getElementById("ln-acc-form-title").textContent = "✏️ 게임 계정 수정 중";
+  document.getElementById("ln-acc-submit-btn").textContent = "계정 수정 저장";
+  document.getElementById("ln-acc-submit-btn").style.background = "#d97706";
+  document.getElementById("ln-acc-cancel-btn").classList.remove("hidden");
+}
+
+function cancelEditAccount() {
+  editingLnAccountId = null;
+  document.getElementById("ln-acc-name").value = "";
+  document.getElementById("ln-acc-memo").value = "";
+  document.getElementById("ln-acc-form-title").textContent = "🔑 게임 계정 등록 및 목록";
+  document.getElementById("ln-acc-submit-btn").textContent = "계정 등록";
+  document.getElementById("ln-acc-submit-btn").style.background = "";
+  document.getElementById("ln-acc-cancel-btn").classList.add("hidden");
+}
+
+async function handleSaveLineageAccount(e) {
+  e.preventDefault();
+  clearMsg();
+  const payload = {
+    account_name: document.getElementById("ln-acc-name").value.trim(),
+    memo: document.getElementById("ln-acc-memo").value.trim(),
+  };
+  const url = editingLnAccountId
+    ? `/api/v1/modules/lineage_tracker/accounts/${editingLnAccountId}`
+    : "/api/v1/modules/lineage_tracker/accounts";
+  const res = await fetch(url, {
+    method: editingLnAccountId ? "PATCH" : "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "계정 저장 실패", true);
+
+  cancelEditAccount();
+  showMsg("게임 계정 정보가 저장되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+async function deleteLineageAccount(id) {
+  if (!confirm("이 게임 계정을 삭제하시겠습니까?")) return;
+  const res = await fetch(`/api/v1/modules/lineage_tracker/accounts/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "계정 삭제 실패", true);
+  if (editingLnAccountId === id) cancelEditAccount();
+  showMsg("계정이 삭제되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+/* --- 캐릭터 CRUD 핸들러 (레벨 입력 없음, 서버·계정 필수, 혈맹 선택) --- */
+function startEditCharacter(id) {
+  const ch = lnBootstrap.characters.find(c => String(c.id) === String(id));
+  if (!ch) return;
+  editingLnCharacterId = ch.id;
+  document.getElementById("ln-char-server").value = ch.server_id || "";
+  document.getElementById("ln-char-account").value = ch.account_id || "";
+  document.getElementById("ln-char-name").value = ch.character_name || "";
+  document.getElementById("ln-char-clan").value = ch.clan_id || "";
+  document.getElementById("ln-char-form-title").textContent = "✏️ 캐릭터 수정 중";
+  document.getElementById("ln-char-submit-btn").textContent = "캐릭터 수정 저장";
+  document.getElementById("ln-char-submit-btn").style.background = "#d97706";
+  document.getElementById("ln-char-cancel-btn").classList.remove("hidden");
+}
+
+function cancelEditCharacter() {
+  editingLnCharacterId = null;
+  document.getElementById("ln-char-name").value = "";
+  document.getElementById("ln-char-clan").value = "";
+  document.getElementById("ln-char-form-title").textContent = "🧙 캐릭터 등록 및 목록";
+  document.getElementById("ln-char-submit-btn").textContent = "캐릭터 등록";
+  document.getElementById("ln-char-submit-btn").style.background = "";
+  document.getElementById("ln-char-cancel-btn").classList.add("hidden");
+}
+
+async function handleSaveLineageCharacter(e) {
+  e.preventDefault();
+  clearMsg();
+  const payload = {
+    server_id: document.getElementById("ln-char-server").value,
+    account_id: document.getElementById("ln-char-account").value,
+    character_name: document.getElementById("ln-char-name").value.trim(),
+    clan_id: document.getElementById("ln-char-clan").value || null,
+  };
+  const url = editingLnCharacterId
+    ? `/api/v1/modules/lineage_tracker/characters/${editingLnCharacterId}`
+    : "/api/v1/modules/lineage_tracker/characters";
+  const res = await fetch(url, {
+    method: editingLnCharacterId ? "PATCH" : "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "캐릭터 저장 실패", true);
+
+  cancelEditCharacter();
+  showMsg("캐릭터 정보가 저장되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+async function deleteLineageCharacter(id) {
+  if (!confirm("이 캐릭터를 삭제하시겠습니까? (연결된 플레이 기록도 함께 삭제됩니다)")) return;
+  const res = await fetch(`/api/v1/modules/lineage_tracker/characters/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "캐릭터 삭제 실패", true);
+  if (editingLnCharacterId === id) cancelEditCharacter();
+  showMsg("캐릭터가 삭제되었습니다.");
+  await reloadLineageBootstrap();
+}
+
+/* --- 아이템 단가 CRUD 핸들러 --- */
+function startEditItem(id) {
+  const it = lnBootstrap.items.find(i => String(i.id) === String(id));
+  if (!it) return;
+  editingLnItemId = it.id;
+  document.getElementById("ln-item-name").value = it.item_name || "";
+  document.getElementById("ln-item-price").value = it.adena_unit_price ?? 0;
+  document.getElementById("ln-item-cat").value = it.category || "기타";
+  document.getElementById("ln-item-form-title").textContent = "✏️ 아이템 단가 수정 중";
+  document.getElementById("ln-item-submit-btn").textContent = "단가 수정 저장";
+  document.getElementById("ln-item-submit-btn").style.background = "#d97706";
+  document.getElementById("ln-item-cancel-btn").classList.remove("hidden");
+}
+
+function cancelEditItem() {
+  editingLnItemId = null;
+  document.getElementById("ln-item-name").value = "";
+  document.getElementById("ln-item-price").value = "";
+  document.getElementById("ln-item-cat").value = "재화";
+  document.getElementById("ln-item-form-title").textContent = "💎 아이템 아데나 환산 단가 등록 및 목록";
+  document.getElementById("ln-item-submit-btn").textContent = "단가 등록";
+  document.getElementById("ln-item-submit-btn").style.background = "";
+  document.getElementById("ln-item-cancel-btn").classList.add("hidden");
+}
+
+async function handleSaveLineageItem(e) {
+  e.preventDefault();
+  clearMsg();
   const payload = {
     item_name: document.getElementById("ln-item-name").value.trim(),
     adena_unit_price: parseFloat(document.getElementById("ln-item-price").value),
     category: document.getElementById("ln-item-cat").value,
   };
-  const res = await fetch("/api/v1/modules/lineage_tracker/items", {
-    method: "POST",
+  const url = editingLnItemId
+    ? `/api/v1/modules/lineage_tracker/items/${editingLnItemId}`
+    : "/api/v1/modules/lineage_tracker/items";
+  const res = await fetch(url, {
+    method: editingLnItemId ? "PATCH" : "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  if (!res.ok) return showMsg("아이템 단가 저장 실패", true);
-  e.target.reset();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "아이템 단가 저장 실패", true);
+
+  cancelEditItem();
   showMsg("아이템 아데나 단가가 저장되었습니다.");
-  initLineageTrackerModule();
+  await reloadLineageBootstrap();
 }
 
-async function handleCreateLineageCharacter(e) {
-  e.preventDefault();
-  const payload = {
-    clan_id: document.getElementById("ln-char-clan").value || null,
-    account_name: document.getElementById("ln-char-account").value.trim(),
-    character_name: document.getElementById("ln-char-name").value.trim(),
-    current_level: parseInt(document.getElementById("ln-char-level").value, 10),
-    current_exp: parseFloat(document.getElementById("ln-char-exp").value),
-  };
-  const res = await fetch("/api/v1/modules/lineage_tracker/characters", {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
+async function deleteLineageItem(id) {
+  if (!confirm("이 아이템을 삭제하시겠습니까?")) return;
+  const res = await fetch(`/api/v1/modules/lineage_tracker/items/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false),
   });
-  if (!res.ok) return showMsg("캐릭터 등록 실패", true);
-  e.target.reset();
-  showMsg("새 계정/캐릭터가 등록되었습니다.");
-  initLineageTrackerModule();
-}
-
-async function handleCreateLineageClan(e) {
-  e.preventDefault();
-  const payload = {
-    server_name: document.getElementById("ln-clan-server").value.trim(),
-    clan_name: document.getElementById("ln-clan-name").value.trim(),
-    description: document.getElementById("ln-clan-desc").value.trim(),
-  };
-  const res = await fetch("/api/v1/modules/lineage_tracker/clans", {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) return showMsg("서버/혈맹 추가 실패", true);
-  e.target.reset();
-  showMsg("새 서버/혈맹이 추가되었습니다.");
-  initLineageTrackerModule();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showMsg(data.detail || "아이템 삭제 실패", true);
+  if (editingLnItemId === id) cancelEditItem();
+  showMsg("아이템이 삭제되었습니다.");
+  await reloadLineageBootstrap();
 }
