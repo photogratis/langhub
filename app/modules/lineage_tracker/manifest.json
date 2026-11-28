@@ -1,16 +1,51 @@
 {
   "module_id": "lineage_tracker",
-  "name": "리니지 파밍 기록 · 루피아 정산",
-  "name_id": "Catatan Farming Lineage & Penggajian IDR",
-  "description": "일일 플레이 시간·경험치·인벤토리·창고 입출고·판매 아데나 환산 및 시간당 획득량 기준 인도네시아 루피아(IDR) 급여 정산 시스템",
-  "description_id": "Pencatatan sesi bermain, inventaris, gudang, konversi Adena per jam, dan pembayaran gaji IDR.",
-  "version": "1.0.0",
-  "type": "feature",
-  "dependencies": [],
-  "ui": {
-    "asset_module": "lineage_tracker",
-    "html": "widget.html",
-    "js": "widget.js",
-    "init_fn": "initLineageTrackerModule"
-  }
+  "name": "리니지 작업 · 창고 · 정산",
+  "description": "일일 게임 시작/종료, 개인·혈맹 창고 입출고, 시간당 아데나 수익 및 IDR 급여 정산",
+  "version": "2.0.0",
+  "api_prefix": "/api/v1/modules/lineage_tracker",
+  "default_enabled": true,
+  "default_access_type": "GRADE",
+  "default_allowed_grades": ["LINEAGE", "LINEAGE_ADMIN", "ADMIN"],
+  "menus": [
+    {
+      "module_id": "lineage_tracker",
+      "name": "리니지 일일 작업 · 창고 · 정산",
+      "description": "게임 시작/종료 기록, 개인·혈맹 창고 입출고, 플레이 내역 및 IDR 급여 정산",
+      "default_access_type": "GRADE",
+      "default_allowed_grades": ["LINEAGE", "LINEAGE_ADMIN", "ADMIN"],
+      "ui": {
+        "asset_module": "lineage_tracker",
+        "html": "widget.html",
+        "js": ["widget.js"],
+        "init_fn": "initLineageTrackerModule"
+      }
+    },
+    {
+      "module_id": "lineage_items_npcs",
+      "name": "리니지 아이템 · NPC 시세표",
+      "description": "아이템별 최저 구매가·최고 매입가 비교 및 마을별 NPC 상점 검색/관리",
+      "default_access_type": "GRADE",
+      "default_allowed_grades": ["LINEAGE", "LINEAGE_ADMIN", "ADMIN"],
+      "ui": {
+        "asset_module": "lineage_tracker",
+        "html": "items_npcs.html",
+        "js": ["items_npcs.js"],
+        "init_fn": "initLineageItemsNpcsModule"
+      }
+    },
+    {
+      "module_id": "lineage_master",
+      "name": "리니지 서버 · 혈맹 · 계정 · 캐릭터",
+      "description": "게임 서버, 혈맹, 계정, 캐릭터 기준정보 검색 및 등록/수정 (관리자 전용)",
+      "default_access_type": "GRADE",
+      "default_allowed_grades": ["LINEAGE_ADMIN", "ADMIN"],
+      "ui": {
+        "asset_module": "lineage_tracker",
+        "html": "master.html",
+        "js": ["master.js"],
+        "init_fn": "initLineageMasterModule"
+      }
+    }
+  ]
 }

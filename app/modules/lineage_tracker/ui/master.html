@@ -1,0 +1,185 @@
+<div class="lineage-master-wrap">
+  <!-- 상단 서브 메뉴 탭 -->
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+    <button type="button" id="ln-m-tab-characters" onclick="switchLineageMasterTab('characters')">🧙 캐릭터 관리</button>
+    <button type="button" id="ln-m-tab-accounts" class="secondary" onclick="switchLineageMasterTab('accounts')">🔑 게임 계정 관리</button>
+    <button type="button" id="ln-m-tab-clans" class="secondary" onclick="switchLineageMasterTab('clans')">🏰 혈맹 관리</button>
+    <button type="button" id="ln-m-tab-servers" class="secondary" onclick="switchLineageMasterTab('servers')">🌐 서버 관리</button>
+  </div>
+
+  <!-- =========================================================
+       탭 1: 캐릭터 관리 (검색 + 페이지네이션)
+  ========================================================= -->
+  <div id="ln-m-view-characters">
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong id="ln-m-char-form-title">➕ 새 캐릭터 등록</strong>
+        <button type="button" id="ln-m-char-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelMasterEditChar()">수정 취소</button>
+      </div>
+      <form onsubmit="handleMasterSaveChar(event)" class="row" style="align-items:flex-end;">
+        <div>
+          <label>소속 서버 (필수)</label>
+          <select id="ln-m-char-server" required></select>
+        </div>
+        <div>
+          <label>소속 계정 (필수)</label>
+          <select id="ln-m-char-account" required></select>
+        </div>
+        <div>
+          <label>캐릭터명 (필수)</label>
+          <input type="text" id="ln-m-char-name" required placeholder="예: 데포로쥬기사" />
+        </div>
+        <div>
+          <label>소속 혈맹 (선택)</label>
+          <select id="ln-m-char-clan"></select>
+        </div>
+        <div>
+          <button type="submit" id="ln-m-char-submit-btn" style="width:100%;">캐릭터 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:2;">
+        <input type="text" id="ln-m-char-search" placeholder="캐릭터명, 서버명, 계정명, 혈맹명 검색..." oninput="renderMasterCharsPage(1)" />
+      </div>
+      <div style="flex:0.8;">
+        <select id="ln-m-char-pagesize" onchange="renderMasterCharsPage(1)">
+          <option value="10" selected>10개씩</option>
+          <option value="20">20개씩</option>
+          <option value="50">50개씩</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ln-m-char-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+    <div id="ln-m-char-list"></div>
+    <div id="ln-m-char-pagination" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 2: 게임 계정 관리 (검색 + 페이지네이션)
+  ========================================================= -->
+  <div id="ln-m-view-accounts" class="hidden">
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong id="ln-m-acc-form-title">➕ 새 게임 계정 등록</strong>
+        <button type="button" id="ln-m-acc-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelMasterEditAcc()">수정 취소</button>
+      </div>
+      <form onsubmit="handleMasterSaveAcc(event)" class="row" style="align-items:flex-end;">
+        <div>
+          <label>게임 계정명</label>
+          <input type="text" id="ln-m-acc-name" required placeholder="예: acc_worker_01" />
+        </div>
+        <div style="flex:2;">
+          <label>계정 메모 (선택)</label>
+          <input type="text" id="ln-m-acc-memo" placeholder="구글/NC계정 구분 등" />
+        </div>
+        <div>
+          <button type="submit" id="ln-m-acc-submit-btn" style="width:100%;">계정 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:2;">
+        <input type="text" id="ln-m-acc-search" placeholder="계정명 또는 메모 검색..." oninput="renderMasterAccsPage(1)" />
+      </div>
+      <div style="flex:0.8;">
+        <select id="ln-m-acc-pagesize" onchange="renderMasterAccsPage(1)">
+          <option value="10" selected>10개씩</option>
+          <option value="20">20개씩</option>
+          <option value="50">50개씩</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ln-m-acc-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+    <div id="ln-m-acc-list"></div>
+    <div id="ln-m-acc-pagination" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 3: 혈맹 관리 (검색 + 페이지네이션)
+  ========================================================= -->
+  <div id="ln-m-view-clans" class="hidden">
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong id="ln-m-clan-form-title">➕ 새 혈맹 등록</strong>
+        <button type="button" id="ln-m-clan-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelMasterEditClan()">수정 취소</button>
+      </div>
+      <form onsubmit="handleMasterSaveClan(event)" class="row" style="align-items:flex-end;">
+        <div>
+          <label>혈맹명</label>
+          <input type="text" id="ln-m-clan-name" required placeholder="예: 붉은기사단" />
+        </div>
+        <div style="flex:2;">
+          <label>설명 (선택)</label>
+          <input type="text" id="ln-m-clan-desc" placeholder="혈맹 메모" />
+        </div>
+        <div>
+          <button type="submit" id="ln-m-clan-submit-btn" style="width:100%;">혈맹 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:2;">
+        <input type="text" id="ln-m-clan-search" placeholder="혈맹명 또는 설명 검색..." oninput="renderMasterClansPage(1)" />
+      </div>
+      <div style="flex:0.8;">
+        <select id="ln-m-clan-pagesize" onchange="renderMasterClansPage(1)">
+          <option value="10" selected>10개씩</option>
+          <option value="20">20개씩</option>
+          <option value="50">50개씩</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ln-m-clan-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+    <div id="ln-m-clan-list"></div>
+    <div id="ln-m-clan-pagination" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 4: 서버 관리 (검색 + 페이지네이션)
+  ========================================================= -->
+  <div id="ln-m-view-servers" class="hidden">
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong id="ln-m-srv-form-title">➕ 새 서버 등록</strong>
+        <button type="button" id="ln-m-srv-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelMasterEditSrv()">수정 취소</button>
+      </div>
+      <form onsubmit="handleMasterSaveSrv(event)" class="row" style="align-items:flex-end;">
+        <div>
+          <label>서버명</label>
+          <input type="text" id="ln-m-srv-name" required placeholder="예: 데포로쥬01" />
+        </div>
+        <div style="flex:2;">
+          <label>설명 (선택)</label>
+          <input type="text" id="ln-m-srv-desc" placeholder="서버 메모" />
+        </div>
+        <div>
+          <button type="submit" id="ln-m-srv-submit-btn" style="width:100%;">서버 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:2;">
+        <input type="text" id="ln-m-srv-search" placeholder="서버명 또는 설명 검색..." oninput="renderMasterSrvsPage(1)" />
+      </div>
+      <div style="flex:0.8;">
+        <select id="ln-m-srv-pagesize" onchange="renderMasterSrvsPage(1)">
+          <option value="10" selected>10개씩</option>
+          <option value="20">20개씩</option>
+          <option value="50">50개씩</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ln-m-srv-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+    <div id="ln-m-srv-list"></div>
+    <div id="ln-m-srv-pagination" style="margin-top:12px;"></div>
+  </div>
+</div>

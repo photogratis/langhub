@@ -10,14 +10,6 @@ var lnBootstrap = {
 var lnActiveSession = null;
 var lnAllInventories = [];
 
-// 관리자 수정 모드 ID 상태
-var editingLnServerId = null;
-var editingLnClanId = null;
-var editingLnAccountId = null;
-var editingLnCharacterId = null;
-var editingLnItemId = null;
-var editingLnNpcId = null;
-
 function toLocalDatetimeInputValue(dateObj = new Date()) {
   const pad = n => String(n).padStart(2, "0");
   return `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}T${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
@@ -35,7 +27,6 @@ async function initLineageTrackerModule() {
   clearMsg();
   await reloadLineageBootstrap();
 
-  // 기본 정산 조회 기간 (이번 달 1일 ~ 오늘)
   const today = new Date();
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
   const startEl = document.getElementById("ln-pay-start");
@@ -62,24 +53,14 @@ async function reloadLineageBootstrap() {
   });
 
   populateLineageSelectors();
-  renderAdminMasterLists();
-  renderPublicNpcDirectory();
 }
 
 function populateLineageSelectors() {
-  const serverOpts = lnBootstrap.servers
-    .map(s => `<option value="${s.id}">${s.server_name}</option>`)
-    .join("");
-
   const clanOptsOptional =
     `<option value="">(혈맹 없음 / 선택 안 함)</option>` +
     lnBootstrap.clans
       .map(c => `<option value="${c.id}">🏰 ${c.clan_name}</option>`)
       .join("");
-
-  const accountOpts = lnBootstrap.accounts
-    .map(a => `<option value="${a.id}">${a.account_name}</option>`)
-    .join("");
 
   const charOpts = lnBootstrap.characters
     .map(ch => {
@@ -100,13 +81,7 @@ function populateLineageSelectors() {
       .map(n => `<option value="${n.id}">[${n.town_name}] ${n.npc_name} (${n.business_type})</option>`)
       .join("");
 
-  const srvEl = document.getElementById("ln-char-server");
-  if (srvEl) srvEl.innerHTML = serverOpts;
-
-  const accEl = document.getElementById("ln-char-account");
-  if (accEl) accEl.innerHTML = accountOpts;
-
-  ["ln-tx-clan", "ln-adj-clan", "ln-char-clan"].forEach(id => {
+  ["ln-tx-clan", "ln-adj-clan"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = clanOptsOptional;
   });
@@ -127,7 +102,7 @@ function populateLineageSelectors() {
 
 function switchLineageTab(tabName) {
   clearMsg();
-  ["play", "storage", "npcs", "history", "admin"].forEach(t => {
+  ["play", "storage", "history", "admin"].forEach(t => {
     const btn = document.getElementById(`ln-tab-${t}`);
     const view = document.getElementById(`ln-view-${t}`);
     if (btn) {
@@ -143,20 +118,14 @@ function switchLineageTab(tabName) {
   } else if (tabName === "storage") {
     onChangeTxCharacter();
     loadLineageTransactionsAndLogs();
-  } else if (tabName === "npcs") {
-    renderPublicNpcDirectory();
   } else if (tabName === "history") {
     loadPlaySessionsHistory();
     loadMyIdrPayouts();
   } else if (tabName === "admin") {
-    renderAdminMasterLists();
     loadWorkerPayoutSummary();
   }
 }
 
-/* =========================================================
-   아이템 행 동적 추가 유틸
-========================================================= */
 function addLineageItemRow(containerId, presetItemId = "", presetQty = 0) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -318,7 +287,7 @@ async function handleEndLineageSession(e) {
 }
 
 /* =========================================================
-   탭 2: 개인/혈맹 창고 입출고 & 판매/이전 (NPC 매입가 자동 반영)
+   탭 2: 개인/혈맹 창고 입출고 & 판매/이전
 ========================================================= */
 function onChangeTxCharacter() {
   const charId = document.getElementById("ln-tx-char")?.value;
@@ -491,83 +460,7 @@ async function loadLineageTransactionsAndLogs() {
 }
 
 /* =========================================================
-   탭 3: NPC 상점 · 매입/판매 시세 안내 (전체 회원 조회)
-========================================================= */
-function renderPublicNpcDirectory() {
-  const container = document.getElementById("ln-public-npcs-directory");
-  if (!container) return;
-
-  const kw = (document.getElementById("ln-npc-search")?.value || "").trim().toLowerCase();
-  const npcs = (lnBootstrap.npcs || []).filter(n => {
-    if (!kw) return true;
-    const itemNames = (n.lineage_npc_items || [])
-      .map(ni => ni.lineage_items?.item_name || "")
-      .join(" ")
-      .toLowerCase();
-    return (
-      (n.town_name || "").toLowerCase().includes(kw) ||
-      (n.npc_name || "").toLowerCase().includes(kw) ||
-      (n.business_type || "").toLowerCase().includes(kw) ||
-      (n.memo || "").toLowerCase().includes(kw) ||
-      itemNames.includes(kw)
-    );
-  });
-
-  if (!npcs.length) {
-    container.innerHTML = `<p style="color:#64748b; text-align:center; padding:20px;">등록된 NPC 정보가 없습니다.</p>`;
-    return;
-  }
-
-  container.innerHTML = npcs.map(n => {
-    const allItems = n.lineage_npc_items || [];
-    const sellItems = allItems.filter(i => i.trade_direction === "SELL_TO_PLAYER");
-    const buyItems = allItems.filter(i => i.trade_direction === "BUY_FROM_PLAYER");
-
-    const sellHtml = sellItems.length
-      ? sellItems.map(i => `
-          <div style="display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed #e2e8f0; font-size:12.5px;">
-            <span>${i.lineage_items?.item_name || "-"}</span>
-            <b style="color:#2563eb;">${fmtNum(i.price_adena)} 아데나</b>
-          </div>
-        `).join("")
-      : `<span style="color:#94a3b8; font-size:12px;">판매 물품 없음</span>`;
-
-    const buyHtml = buyItems.length
-      ? buyItems.map(i => `
-          <div style="display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed #e2e8f0; font-size:12.5px;">
-            <span>${i.lineage_items?.item_name || "-"}</span>
-            <b style="color:#16a34a;">${fmtNum(i.price_adena)} 아데나</b>
-          </div>
-        `).join("")
-      : `<span style="color:#94a3b8; font-size:12px;">매입 물품 없음</span>`;
-
-    return `
-      <div class="word-card" style="background:#fff; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
-          <div>
-            <span class="pos-badge">🏘️ ${n.town_name}</span>
-            <span class="tag" style="margin-left:4px;">${n.business_type}</span>
-            <strong style="font-size:15px; margin-left:6px;">${n.npc_name}</strong>
-            ${n.memo ? `<small style="color:#64748b; margin-left:8px;">(${n.memo})</small>` : ""}
-          </div>
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">
-          <div style="background:#eff6ff; padding:8px 10px; border-radius:6px;">
-            <div style="font-weight:700; font-size:12.5px; color:#1d4ed8; margin-bottom:4px;">🛒 NPC 판매물품 및 가격 (구매처)</div>
-            ${sellHtml}
-          </div>
-          <div style="background:#f0fdf4; padding:8px 10px; border-radius:6px;">
-            <div style="font-weight:700; font-size:12.5px; color:#15803d; margin-bottom:4px;">💰 NPC 매입물품 및 가격 (판매처)</div>
-            ${buyHtml}
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-/* =========================================================
-   탭 4: 플레이 내역 & 내 IDR 급여 지급 기록
+   탭 3: 플레이 내역 & 내 IDR 급여 지급 기록
 ========================================================= */
 async function loadPlaySessionsHistory() {
   const res = await fetch("/api/v1/modules/lineage_tracker/sessions", {
@@ -655,7 +548,7 @@ async function loadMyIdrPayouts() {
 }
 
 /* =========================================================
-   탭 5: LINEAGE_ADMIN 전용 (보정 / IDR 정산 / 독립 마스터 CRUD)
+   탭 4: LINEAGE_ADMIN 전용 (보정 / IDR 정산)
 ========================================================= */
 function toggleAdjustTargetFields() {
   const st = document.getElementById("ln-adj-storage-type")?.value;
@@ -789,576 +682,4 @@ async function submitWorkerIdrPayout(idx, workerObj) {
   if (!res.ok) return showMsg(data.detail || "지급 기록 저장 실패", true);
 
   showMsg(`${workerObj.worker_nickname}님 지급 기록(${fmtIdr(data.total_paid_idr)})이 저장되었습니다.`);
-}
-
-/* =========================================================
-   독립 마스터 6종 리스트 렌더링 & 등록/수정/삭제
-========================================================= */
-function renderAdminMasterLists() {
-  // 1. 서버 목록
-  const srvListEl = document.getElementById("ln-admin-servers-list");
-  if (srvListEl) {
-    srvListEl.innerHTML = lnBootstrap.servers.length
-      ? lnBootstrap.servers.map(s => `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
-            <div>
-              <b>🌐 ${s.server_name}</b>
-              ${s.description ? `<small style="color:#64748b; margin-left:6px;">${s.description}</small>` : ""}
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditServer('${s.id}')">수정</button>
-              <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageServer('${s.id}')">삭제</button>
-            </div>
-          </div>
-        `).join("")
-      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 서버가 없습니다.</p>`;
-  }
-
-  // 2. 혈맹 목록
-  const clanListEl = document.getElementById("ln-admin-clans-list");
-  if (clanListEl) {
-    clanListEl.innerHTML = lnBootstrap.clans.length
-      ? lnBootstrap.clans.map(c => `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
-            <div>
-              <b>🏰 ${c.clan_name}</b>
-              ${c.description ? `<small style="color:#64748b; margin-left:6px;">${c.description}</small>` : ""}
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditClan('${c.id}')">수정</button>
-              <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageClan('${c.id}')">삭제</button>
-            </div>
-          </div>
-        `).join("")
-      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 혈맹이 없습니다. (혈맹 없이도 운영 가능)</p>`;
-  }
-
-  // 3. 계정 목록
-  const accListEl = document.getElementById("ln-admin-accounts-list");
-  if (accListEl) {
-    accListEl.innerHTML = lnBootstrap.accounts.length
-      ? lnBootstrap.accounts.map(a => `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
-            <div>
-              <b>🔑 ${a.account_name}</b>
-              ${a.memo ? `<small style="color:#64748b; margin-left:6px;">${a.memo}</small>` : ""}
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditAccount('${a.id}')">수정</button>
-              <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageAccount('${a.id}')">삭제</button>
-            </div>
-          </div>
-        `).join("")
-      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 계정이 없습니다.</p>`;
-  }
-
-  // 4. 캐릭터 목록
-  const charListEl = document.getElementById("ln-admin-characters-list");
-  if (charListEl) {
-    charListEl.innerHTML = lnBootstrap.characters.length
-      ? lnBootstrap.characters.map(ch => {
-          const srv = ch.lineage_servers?.server_name || "서버미지정";
-          const acc = ch.lineage_accounts?.account_name || "계정미지정";
-          const clan = ch.lineage_clans?.clan_name
-            ? `<span class="tag" style="background:#f3e8ff; color:#6b21a8; font-size:11px;">🏰 ${ch.lineage_clans.clan_name}</span>`
-            : `<span style="color:#94a3b8; font-size:11.5px;">혈맹없음</span>`;
-          return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px; gap:6px;">
-              <div>
-                <span class="pos-badge">${srv}</span>
-                <b style="margin-left:4px;">${ch.character_name}</b>
-                <small style="color:#475569; margin-left:4px;">(${acc})</small>
-                ${clan}
-              </div>
-              <div style="display:flex; gap:4px; flex-shrink:0;">
-                <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditCharacter('${ch.id}')">수정</button>
-                <button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageCharacter('${ch.id}')">삭제</button>
-              </div>
-            </div>
-          `;
-        }).join("")
-      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 캐릭터가 없습니다.</p>`;
-  }
-
-  // 5. 아이템 단가 목록
-  const itemListEl = document.getElementById("ln-admin-items-list");
-  if (itemListEl) {
-    itemListEl.innerHTML = lnBootstrap.items.length
-      ? lnBootstrap.items.map(it => `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:13px;">
-            <div>
-              <span class="tag">${it.category || "기타"}</span>
-              <b style="margin-left:4px;">${it.item_name}</b>
-              <span style="color:#2563eb; font-weight:700; margin-left:8px;">${fmtNum(it.adena_unit_price)} 아데나</span>
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button type="button" style="background:#0284c7; padding:3px 7px; font-size:11.5px;" onclick="startEditItem('${it.id}')">수정</button>
-              ${it.item_name !== "아데나" ? `<button type="button" class="danger" style="padding:3px 7px; font-size:11.5px;" onclick="deleteLineageItem('${it.id}')">삭제</button>` : ""}
-            </div>
-          </div>
-        `).join("")
-      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 아이템이 없습니다.</p>`;
-  }
-
-  // 6. NPC 목록 및 각 NPC별 판매물품/매입물품 관리 카드
-  const npcListEl = document.getElementById("ln-admin-npcs-list");
-  if (npcListEl) {
-    const itemOpts = lnBootstrap.items
-      .filter(i => i.item_name !== "아데나")
-      .map(i => `<option value="${i.id}">${i.item_name}</option>`)
-      .join("");
-
-    npcListEl.innerHTML = (lnBootstrap.npcs || []).length
-      ? lnBootstrap.npcs.map(n => {
-          const allItems = n.lineage_npc_items || [];
-          const sellItems = allItems.filter(i => i.trade_direction === "SELL_TO_PLAYER");
-          const buyItems = allItems.filter(i => i.trade_direction === "BUY_FROM_PLAYER");
-
-          const renderSubList = (arr, color) => arr.length
-            ? arr.map(ni => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px dashed #e2e8f0; font-size:12.5px;">
-                  <span>${ni.lineage_items?.item_name || "-"} (<b style="color:${color};">${fmtNum(ni.price_adena)} 아데나</b>)</span>
-                  <button type="button" class="danger" style="padding:1px 6px; font-size:11px;" onclick="deleteLineageNpcItem('${ni.id}')">✕</button>
-                </div>
-              `).join("")
-            : `<span style="color:#94a3b8; font-size:12px;">등록된 품목 없음</span>`;
-
-          return `
-            <div class="word-card" style="background:#f8fafc; margin-bottom:10px; padding:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
-                <div>
-                  <span class="pos-badge">🏘️ ${n.town_name}</span>
-                  <span class="tag" style="margin-left:4px;">${n.business_type}</span>
-                  <strong style="margin-left:6px; font-size:14.5px;">${n.npc_name}</strong>
-                  ${n.memo ? `<small style="color:#64748b; margin-left:6px;">${n.memo}</small>` : ""}
-                </div>
-                <div style="display:flex; gap:4px;">
-                  <button type="button" style="background:#0284c7; padding:3px 8px; font-size:11.5px;" onclick="startEditNpc('${n.id}')">정보 수정</button>
-                  <button type="button" class="danger" style="padding:3px 8px; font-size:11.5px;" onclick="deleteLineageNpc('${n.id}')">NPC 삭제</button>
-                </div>
-              </div>
-
-              <!-- 품목 추가 인라인 폼 -->
-              <form onsubmit="handleAddNpcItem(event, '${n.id}')" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; background:#fff; padding:6px 8px; border-radius:6px; border:1px solid #e2e8f0; margin-bottom:8px;">
-                <select id="ln-npc-dir-${n.id}" style="flex:1.2; min-width:140px;">
-                  <option value="SELL_TO_PLAYER">🛒 NPC 판매물품 (유저가 구매)</option>
-                  <option value="BUY_FROM_PLAYER">💰 NPC 매입물품 (유저가 판매)</option>
-                </select>
-                <select id="ln-npc-item-${n.id}" style="flex:1.5; min-width:140px;">${itemOpts}</select>
-                <input type="number" id="ln-npc-price-${n.id}" min="0" step="0.01" required placeholder="가격 (아데나)" style="flex:1; min-width:110px;" />
-                <button type="submit" style="padding:6px 12px; font-size:12px;">+ 품목/가격 저장</button>
-              </form>
-
-              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:8px;">
-                <div style="background:#fff; padding:6px 8px; border-radius:6px; border:1px solid #dbeafe;">
-                  <div style="font-size:12px; font-weight:700; color:#1d4ed8; margin-bottom:3px;">🛒 판매물품 및 가격</div>
-                  ${renderSubList(sellItems, "#2563eb")}
-                </div>
-                <div style="background:#fff; padding:6px 8px; border-radius:6px; border:1px solid #dcfce7;">
-                  <div style="font-size:12px; font-weight:700; color:#15803d; margin-bottom:3px;">💰 매입물품 및 가격</div>
-                  ${renderSubList(buyItems, "#16a34a")}
-                </div>
-              </div>
-            </div>
-          `;
-        }).join("")
-      : `<p style="color:#94a3b8; font-size:12.5px; margin:4px 0;">등록된 NPC가 없습니다.</p>`;
-  }
-}
-
-/* --- 서버 CRUD 핸들러 --- */
-function startEditServer(id) {
-  const item = lnBootstrap.servers.find(s => String(s.id) === String(id));
-  if (!item) return;
-  editingLnServerId = item.id;
-  document.getElementById("ln-srv-name").value = item.server_name || "";
-  document.getElementById("ln-srv-desc").value = item.description || "";
-  document.getElementById("ln-srv-form-title").textContent = "✏️ 서버 수정 중";
-  document.getElementById("ln-srv-submit-btn").textContent = "서버 수정 저장";
-  document.getElementById("ln-srv-submit-btn").style.background = "#d97706";
-  document.getElementById("ln-srv-cancel-btn").classList.remove("hidden");
-}
-
-function cancelEditServer() {
-  editingLnServerId = null;
-  document.getElementById("ln-srv-name").value = "";
-  document.getElementById("ln-srv-desc").value = "";
-  document.getElementById("ln-srv-form-title").textContent = "🌐 서버 등록 및 목록";
-  document.getElementById("ln-srv-submit-btn").textContent = "서버 등록";
-  document.getElementById("ln-srv-submit-btn").style.background = "";
-  document.getElementById("ln-srv-cancel-btn").classList.add("hidden");
-}
-
-async function handleSaveLineageServer(e) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    server_name: document.getElementById("ln-srv-name").value.trim(),
-    description: document.getElementById("ln-srv-desc").value.trim(),
-  };
-  const url = editingLnServerId
-    ? `/api/v1/modules/lineage_tracker/servers/${editingLnServerId}`
-    : "/api/v1/modules/lineage_tracker/servers";
-  const res = await fetch(url, {
-    method: editingLnServerId ? "PATCH" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "서버 저장 실패", true);
-
-  cancelEditServer();
-  showMsg("서버 정보가 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageServer(id) {
-  if (!confirm("이 서버를 삭제하시겠습니까?")) return;
-  const res = await fetch(`/api/v1/modules/lineage_tracker/servers/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "서버 삭제 실패", true);
-  if (editingLnServerId === id) cancelEditServer();
-  showMsg("서버가 삭제되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-/* --- 혈맹 CRUD 핸들러 --- */
-function startEditClan(id) {
-  const item = lnBootstrap.clans.find(c => String(c.id) === String(id));
-  if (!item) return;
-  editingLnClanId = item.id;
-  document.getElementById("ln-clan-name").value = item.clan_name || "";
-  document.getElementById("ln-clan-desc").value = item.description || "";
-  document.getElementById("ln-clan-form-title").textContent = "✏️ 혈맹 수정 중";
-  document.getElementById("ln-clan-submit-btn").textContent = "혈맹 수정 저장";
-  document.getElementById("ln-clan-submit-btn").style.background = "#d97706";
-  document.getElementById("ln-clan-cancel-btn").classList.remove("hidden");
-}
-
-function cancelEditClan() {
-  editingLnClanId = null;
-  document.getElementById("ln-clan-name").value = "";
-  document.getElementById("ln-clan-desc").value = "";
-  document.getElementById("ln-clan-form-title").textContent = "🏰 혈맹 등록 및 목록 (선택 사항)";
-  document.getElementById("ln-clan-submit-btn").textContent = "혈맹 등록";
-  document.getElementById("ln-clan-submit-btn").style.background = "";
-  document.getElementById("ln-clan-cancel-btn").classList.add("hidden");
-}
-
-async function handleSaveLineageClan(e) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    clan_name: document.getElementById("ln-clan-name").value.trim(),
-    description: document.getElementById("ln-clan-desc").value.trim(),
-  };
-  const url = editingLnClanId
-    ? `/api/v1/modules/lineage_tracker/clans/${editingLnClanId}`
-    : "/api/v1/modules/lineage_tracker/clans";
-  const res = await fetch(url, {
-    method: editingLnClanId ? "PATCH" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "혈맹 저장 실패", true);
-
-  cancelEditClan();
-  showMsg("혈맹 정보가 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageClan(id) {
-  if (!confirm("이 혈맹을 삭제하시겠습니까? (연결된 캐릭터의 혈맹 정보는 '혈맹없음'으로 전환됩니다)")) return;
-  const res = await fetch(`/api/v1/modules/lineage_tracker/clans/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "혈맹 삭제 실패", true);
-  if (editingLnClanId === id) cancelEditClan();
-  showMsg("혈맹이 삭제되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-/* --- 계정 CRUD 핸들러 --- */
-function startEditAccount(id) {
-  const item = lnBootstrap.accounts.find(a => String(a.id) === String(id));
-  if (!item) return;
-  editingLnAccountId = item.id;
-  document.getElementById("ln-acc-name").value = item.account_name || "";
-  document.getElementById("ln-acc-memo").value = item.memo || "";
-  document.getElementById("ln-acc-form-title").textContent = "✏️ 게임 계정 수정 중";
-  document.getElementById("ln-acc-submit-btn").textContent = "계정 수정 저장";
-  document.getElementById("ln-acc-submit-btn").style.background = "#d97706";
-  document.getElementById("ln-acc-cancel-btn").classList.remove("hidden");
-}
-
-function cancelEditAccount() {
-  editingLnAccountId = null;
-  document.getElementById("ln-acc-name").value = "";
-  document.getElementById("ln-acc-memo").value = "";
-  document.getElementById("ln-acc-form-title").textContent = "🔑 게임 계정 등록 및 목록";
-  document.getElementById("ln-acc-submit-btn").textContent = "계정 등록";
-  document.getElementById("ln-acc-submit-btn").style.background = "";
-  document.getElementById("ln-acc-cancel-btn").classList.add("hidden");
-}
-
-async function handleSaveLineageAccount(e) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    account_name: document.getElementById("ln-acc-name").value.trim(),
-    memo: document.getElementById("ln-acc-memo").value.trim(),
-  };
-  const url = editingLnAccountId
-    ? `/api/v1/modules/lineage_tracker/accounts/${editingLnAccountId}`
-    : "/api/v1/modules/lineage_tracker/accounts";
-  const res = await fetch(url, {
-    method: editingLnAccountId ? "PATCH" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "계정 저장 실패", true);
-
-  cancelEditAccount();
-  showMsg("게임 계정 정보가 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageAccount(id) {
-  if (!confirm("이 게임 계정을 삭제하시겠습니까?")) return;
-  const res = await fetch(`/api/v1/modules/lineage_tracker/accounts/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "계정 삭제 실패", true);
-  if (editingLnAccountId === id) cancelEditAccount();
-  showMsg("계정이 삭제되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-/* --- 캐릭터 CRUD 핸들러 --- */
-function startEditCharacter(id) {
-  const ch = lnBootstrap.characters.find(c => String(c.id) === String(id));
-  if (!ch) return;
-  editingLnCharacterId = ch.id;
-  document.getElementById("ln-char-server").value = ch.server_id || "";
-  document.getElementById("ln-char-account").value = ch.account_id || "";
-  document.getElementById("ln-char-name").value = ch.character_name || "";
-  document.getElementById("ln-char-clan").value = ch.clan_id || "";
-  document.getElementById("ln-char-form-title").textContent = "✏️ 캐릭터 수정 중";
-  document.getElementById("ln-char-submit-btn").textContent = "캐릭터 수정 저장";
-  document.getElementById("ln-char-submit-btn").style.background = "#d97706";
-  document.getElementById("ln-char-cancel-btn").classList.remove("hidden");
-}
-
-function cancelEditCharacter() {
-  editingLnCharacterId = null;
-  document.getElementById("ln-char-name").value = "";
-  document.getElementById("ln-char-clan").value = "";
-  document.getElementById("ln-char-form-title").textContent = "🧙 캐릭터 등록 및 목록";
-  document.getElementById("ln-char-submit-btn").textContent = "캐릭터 등록";
-  document.getElementById("ln-char-submit-btn").style.background = "";
-  document.getElementById("ln-char-cancel-btn").classList.add("hidden");
-}
-
-async function handleSaveLineageCharacter(e) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    server_id: document.getElementById("ln-char-server").value,
-    account_id: document.getElementById("ln-char-account").value,
-    character_name: document.getElementById("ln-char-name").value.trim(),
-    clan_id: document.getElementById("ln-char-clan").value || null,
-  };
-  const url = editingLnCharacterId
-    ? `/api/v1/modules/lineage_tracker/characters/${editingLnCharacterId}`
-    : "/api/v1/modules/lineage_tracker/characters";
-  const res = await fetch(url, {
-    method: editingLnCharacterId ? "PATCH" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "캐릭터 저장 실패", true);
-
-  cancelEditCharacter();
-  showMsg("캐릭터 정보가 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageCharacter(id) {
-  if (!confirm("이 캐릭터를 삭제하시겠습니까? (연결된 플레이 기록도 함께 삭제됩니다)")) return;
-  const res = await fetch(`/api/v1/modules/lineage_tracker/characters/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "캐릭터 삭제 실패", true);
-  if (editingLnCharacterId === id) cancelEditCharacter();
-  showMsg("캐릭터가 삭제되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-/* --- 아이템 단가 CRUD 핸들러 --- */
-function startEditItem(id) {
-  const it = lnBootstrap.items.find(i => String(i.id) === String(id));
-  if (!it) return;
-  editingLnItemId = it.id;
-  document.getElementById("ln-item-name").value = it.item_name || "";
-  document.getElementById("ln-item-price").value = it.adena_unit_price ?? 0;
-  document.getElementById("ln-item-cat").value = it.category || "기타";
-  document.getElementById("ln-item-form-title").textContent = "✏️ 아이템 단가 수정 중";
-  document.getElementById("ln-item-submit-btn").textContent = "단가 수정 저장";
-  document.getElementById("ln-item-submit-btn").style.background = "#d97706";
-  document.getElementById("ln-item-cancel-btn").classList.remove("hidden");
-}
-
-function cancelEditItem() {
-  editingLnItemId = null;
-  document.getElementById("ln-item-name").value = "";
-  document.getElementById("ln-item-price").value = "";
-  document.getElementById("ln-item-cat").value = "재화";
-  document.getElementById("ln-item-form-title").textContent = "💎 아이템 기본 아데나 환산 단가 등록 및 목록";
-  document.getElementById("ln-item-submit-btn").textContent = "단가 등록";
-  document.getElementById("ln-item-submit-btn").style.background = "";
-  document.getElementById("ln-item-cancel-btn").classList.add("hidden");
-}
-
-async function handleSaveLineageItem(e) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    item_name: document.getElementById("ln-item-name").value.trim(),
-    adena_unit_price: parseFloat(document.getElementById("ln-item-price").value),
-    category: document.getElementById("ln-item-cat").value,
-  };
-  const url = editingLnItemId
-    ? `/api/v1/modules/lineage_tracker/items/${editingLnItemId}`
-    : "/api/v1/modules/lineage_tracker/items";
-  const res = await fetch(url, {
-    method: editingLnItemId ? "PATCH" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "아이템 단가 저장 실패", true);
-
-  cancelEditItem();
-  showMsg("아이템 아데나 단가가 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageItem(id) {
-  if (!confirm("이 아이템을 삭제하시겠습니까?")) return;
-  const res = await fetch(`/api/v1/modules/lineage_tracker/items/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "아이템 삭제 실패", true);
-  if (editingLnItemId === id) cancelEditItem();
-  showMsg("아이템이 삭제되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-/* --- NPC CRUD 및 NPC 취급 품목 핸들러 --- */
-function startEditNpc(id) {
-  const npc = (lnBootstrap.npcs || []).find(n => String(n.id) === String(id));
-  if (!npc) return;
-  editingLnNpcId = npc.id;
-  document.getElementById("ln-npc-town").value = npc.town_name || "";
-  document.getElementById("ln-npc-name").value = npc.npc_name || "";
-  document.getElementById("ln-npc-biz").value = npc.business_type || "";
-  document.getElementById("ln-npc-memo").value = npc.memo || "";
-  document.getElementById("ln-npc-form-title").textContent = "✏️ NPC 상점 정보 수정 중";
-  document.getElementById("ln-npc-submit-btn").textContent = "NPC 수정 저장";
-  document.getElementById("ln-npc-submit-btn").style.background = "#d97706";
-  document.getElementById("ln-npc-cancel-btn").classList.remove("hidden");
-}
-
-function cancelEditNpc() {
-  editingLnNpcId = null;
-  document.getElementById("ln-npc-town").value = "";
-  document.getElementById("ln-npc-name").value = "";
-  document.getElementById("ln-npc-biz").value = "";
-  document.getElementById("ln-npc-memo").value = "";
-  document.getElementById("ln-npc-form-title").textContent = "🏪 NPC 상점 등록 및 취급 품목 (판매가 · 매입가) 관리";
-  document.getElementById("ln-npc-submit-btn").textContent = "NPC 등록";
-  document.getElementById("ln-npc-submit-btn").style.background = "";
-  document.getElementById("ln-npc-cancel-btn").classList.add("hidden");
-}
-
-async function handleSaveLineageNpc(e) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    town_name: document.getElementById("ln-npc-town").value.trim(),
-    npc_name: document.getElementById("ln-npc-name").value.trim(),
-    business_type: document.getElementById("ln-npc-biz").value.trim(),
-    memo: document.getElementById("ln-npc-memo").value.trim(),
-  };
-  const url = editingLnNpcId
-    ? `/api/v1/modules/lineage_tracker/npcs/${editingLnNpcId}`
-    : "/api/v1/modules/lineage_tracker/npcs";
-  const res = await fetch(url, {
-    method: editingLnNpcId ? "PATCH" : "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "NPC 저장 실패", true);
-
-  cancelEditNpc();
-  showMsg("NPC 정보가 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageNpc(id) {
-  if (!confirm("이 NPC와 등록된 판매/매입 품목을 모두 삭제하시겠습니까?")) return;
-  const res = await fetch(`/api/v1/modules/lineage_tracker/npcs/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "NPC 삭제 실패", true);
-  if (editingLnNpcId === id) cancelEditNpc();
-  showMsg("NPC가 삭제되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function handleAddNpcItem(e, npcId) {
-  e.preventDefault();
-  clearMsg();
-  const payload = {
-    trade_direction: document.getElementById(`ln-npc-dir-${npcId}`).value,
-    item_id: document.getElementById(`ln-npc-item-${npcId}`).value,
-    price_adena: parseFloat(document.getElementById(`ln-npc-price-${npcId}`).value),
-  };
-  const res = await fetch(`/api/v1/modules/lineage_tracker/npcs/${npcId}/items`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return showMsg(data.detail || "NPC 품목 등록 실패", true);
-
-  showMsg("NPC 취급 품목 및 가격이 저장되었습니다.");
-  await reloadLineageBootstrap();
-}
-
-async function deleteLineageNpcItem(npcItemId) {
-  const res = await fetch(`/api/v1/modules/lineage_tracker/npc-items/${npcItemId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(false),
-  });
-  if (!res.ok) return showMsg("품목 삭제 실패", true);
-  showMsg("NPC 품목이 삭제되었습니다.");
-  await reloadLineageBootstrap();
 }

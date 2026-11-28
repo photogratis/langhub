@@ -1,0 +1,125 @@
+<div class="lineage-items-npcs-wrap">
+  <!-- 상단 서브 탭 -->
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+    <button type="button" id="ln-in-tab-items" onclick="switchLineageInTab('items')">💎 아이템 리스트 · 최저 구매가 / 최고 매입가</button>
+    <button type="button" id="ln-in-tab-npcs" class="secondary" onclick="switchLineageInTab('npcs')">🏪 NPC 상점 리스트 · 취급 품목</button>
+  </div>
+
+  <!-- =========================================================
+       탭 1: 아이템 리스트 (최저 구매가 / 최고 매입가 자동 표시 + 검색 + 페이지네이션)
+  ========================================================= -->
+  <div id="ln-in-view-items">
+    <!-- 관리자 전용: 아이템 등록/수정 폼 -->
+    <div id="ln-in-item-admin-box" class="hidden" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong id="ln-in-item-form-title" style="color:#0f172a;">➕ 새 아이템 등록 (기본 환산 단가)</strong>
+        <button type="button" id="ln-in-item-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelInEditItem()">수정 취소</button>
+      </div>
+      <form onsubmit="handleInSaveItem(event)" class="row" style="align-items:flex-end;">
+        <div style="flex:2;">
+          <label>아이템명</label>
+          <input type="text" id="ln-in-item-name" required placeholder="예: 축복받은 무기 마법 주문서" />
+        </div>
+        <div style="flex:1.5;">
+          <label>기본 환산 단가 (Adena)</label>
+          <input type="number" id="ln-in-item-price" step="0.01" min="0" required placeholder="예: 250000" />
+        </div>
+        <div style="flex:1;">
+          <label>분류</label>
+          <select id="ln-in-item-cat">
+            <option value="재화">재화</option>
+            <option value="주문서">주문서</option>
+            <option value="장비">장비</option>
+            <option value="재료">재료</option>
+            <option value="소모품">소모품</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <button type="submit" id="ln-in-item-submit-btn" style="width:100%;">아이템 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 검색 & 필터 바 -->
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:2;">
+        <input type="text" id="ln-in-item-search" placeholder="아이템 이름 또는 NPC명 검색..." oninput="renderInItemsPage(1)" />
+      </div>
+      <div style="flex:1;">
+        <select id="ln-in-item-cat-filter" onchange="renderInItemsPage(1)">
+          <option value="ALL">전체 분류</option>
+          <option value="재화">재화</option>
+          <option value="주문서">주문서</option>
+          <option value="장비">장비</option>
+          <option value="재료">재료</option>
+          <option value="소모품">소모품</option>
+          <option value="기타">기타</option>
+        </select>
+      </div>
+      <div style="flex:0.8;">
+        <select id="ln-in-item-pagesize" onchange="renderInItemsPage(1)">
+          <option value="10" selected>10개씩</option>
+          <option value="20">20개씩</option>
+          <option value="50">50개씩</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ln-in-item-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+    <div id="ln-in-items-list"></div>
+    <div id="ln-in-items-pagination" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 2: NPC 상점 리스트 (마을 · 업종 · 판매가 · 매입가 + 검색 + 페이지네이션)
+  ========================================================= -->
+  <div id="ln-in-view-npcs" class="hidden">
+    <!-- 관리자 전용: NPC 등록/수정 폼 -->
+    <div id="ln-in-npc-admin-box" class="hidden" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong id="ln-in-npc-form-title" style="color:#0f172a;">🏪 새 NPC 상점 등록</strong>
+        <button type="button" id="ln-in-npc-cancel-btn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="cancelInEditNpc()">수정 취소</button>
+      </div>
+      <form onsubmit="handleInSaveNpc(event)" class="row" style="align-items:flex-end;">
+        <div>
+          <label>위치한 마을</label>
+          <input type="text" id="ln-in-npc-town" required placeholder="예: 기란 마을" />
+        </div>
+        <div>
+          <label>NPC 이름</label>
+          <input type="text" id="ln-in-npc-name" required placeholder="예: 메이어" />
+        </div>
+        <div>
+          <label>업종명</label>
+          <input type="text" id="ln-in-npc-biz" required placeholder="예: 잡화상 / 무기상 / 매입상" />
+        </div>
+        <div>
+          <label>메모 (위치 안내)</label>
+          <input type="text" id="ln-in-npc-memo" placeholder="예: 기란 여관 앞" />
+        </div>
+        <div>
+          <button type="submit" id="ln-in-npc-submit-btn" style="width:100%;">NPC 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- NPC 검색 & 페이지당 개수 -->
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:2.5;">
+        <input type="text" id="ln-in-npc-search" placeholder="마을명, NPC 이름, 업종명, 취급 아이템 검색..." oninput="renderInNpcsPage(1)" />
+      </div>
+      <div style="flex:0.8;">
+        <select id="ln-in-npc-pagesize" onchange="renderInNpcsPage(1)">
+          <option value="10" selected>10개씩</option>
+          <option value="20">20개씩</option>
+          <option value="50">50개씩</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ln-in-npc-summary" style="font-size:13px; color:#475569; margin-bottom:8px;"></div>
+    <div id="ln-in-npcs-list"></div>
+    <div id="ln-in-npcs-pagination" style="margin-top:12px;"></div>
+  </div>
+</div>
