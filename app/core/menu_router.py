@@ -15,8 +15,13 @@ def get_public_modules_menu():
 
     menus = []
     for mod_id, meta in LOADED_MANIFESTS.items():
-        policy = db_policies.get(mod_id, {"is_enabled": True, "access_type": "PUBLIC"})
-        if not policy.get("is_enabled", True):
+        default_enabled = meta.get("default_enabled", True)
+        default_access = meta.get("default_access_type", "PUBLIC")
+        policy = db_policies.get(
+            mod_id,
+            {"is_enabled": default_enabled, "access_type": default_access},
+        )
+        if not policy.get("is_enabled", default_enabled):
             continue
 
         # 한국어 표시 문구 (DB 수정값 우선 -> manifest.json 기본값)
@@ -42,7 +47,7 @@ def get_public_modules_menu():
             "name_id": display_name_id,
             "description_id": display_desc_id,
             "type": meta.get("type", "feature"),
-            "access_type": policy.get("access_type", "PUBLIC"),
+            "access_type": policy.get("access_type", default_access),
             "ui": meta.get("ui"),
         })
 
