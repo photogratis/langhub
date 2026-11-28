@@ -10,6 +10,8 @@ from app.modules.lineage_tracker.schemas import (
     ClanUpsert,
     ItemTransactionCreate,
     ItemUpsert,
+    NpcItemUpsert,
+    NpcUpsert,
     PayoutCreateRequest,
     ServerUpsert,
     SessionEndRequest,
@@ -46,7 +48,7 @@ def require_lineage_admin(current_user: dict = Depends(get_current_user)) -> dic
 
 
 # =========================================================
-# 1. 마스터 데이터 통합 조회 (서버 / 혈맹 / 계정 / 캐릭터 / 아이템)
+# 1. 마스터 데이터 통합 조회 (서버 / 혈맹 / 계정 / 캐릭터 / 아이템 / NPC)
 # =========================================================
 @router.get("/bootstrap")
 def get_lineage_bootstrap(user: dict = Depends(require_lineage_member)):
@@ -97,6 +99,16 @@ def get_lineage_bootstrap(user: dict = Depends(require_lineage_member)):
         .data
         or []
     )
+    npcs = (
+        supabase.table("lineage_npcs")
+        .select("*, lineage_npc_items(id, item_id, trade_direction, price_adena, lineage_items(item_name, category))")
+        .eq("is_active", True)
+        .order("town_name")
+        .order("npc_name")
+        .execute()
+        .data
+        or []
+    )
     grade = str(user.get("grade") or "").strip().upper()
     return {
         "is_lineage_admin": grade in ("LINEAGE_ADMIN", "ADMIN"),
@@ -105,6 +117,7 @@ def get_lineage_bootstrap(user: dict = Depends(require_lineage_member)):
         "accounts": accounts,
         "characters": chars,
         "items": items,
+        "npcs": npcs,
     }
 
 
@@ -159,7 +172,6 @@ def update_clan(clan_id: str, req: ClanUpsert, admin: dict = Depends(require_lin
 
 @router.delete("/clans/{clan_id}")
 def delete_clan(clan_id: str, admin: dict = Depends(require_lineage_admin)):
-    # 캐릭터의 clan_id는 ON DELETE SET NULL 로 자동 해제됨
     supabase.table("lineage_clans").delete().eq("id", clan_id).execute()
     return {"message": "혈맹이 삭제되었습니다."}
 
@@ -267,6 +279,67 @@ def delete_item_price(item_id: str, admin: dict = Depends(require_lineage_admin)
         raise HTTPException(status_code=400, detail="기본 재화 '아데나'는 삭제할 수 없습니다.")
     supabase.table("lineage_items").delete().eq("id", item_id).execute()
     return {"message": "아이템이 삭제되었습니다."}
+
+
+# --- [NPC 마스터 및 NPC별 판매/매입 품목 CRUD] ---
+@router.post("/npcs")
+def create_npc(req: NpcUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {
+        "npc_name": req.npc_name.strip(),
+        "business_type": req.business_type.strip(),
+        "town_name": req.town_name.strip(),
+        "memo": req.memo.strip(),
+    }
+    try:
+        res = supabase.table("lineage_npcs").insert(payload).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"NPC 등록 실패 (같은 마을 내 이름 중복 확인): {str(e)}")
+
+
+@router.patch("/npcs/{npc_id}")
+def update_npc(npc_id: str, req: NpcUpsert, admin: dict = Depends(require_lineage_admin)):
+    payload = {
+        "npc_name": req.npc_name.strip(),
+        "business_type": req.business_type.strip(),
+        "town_name": req.town_name.strip(),
+        "memo": req.memo.strip(),
+    }
+    res = supabase.table("lineage_npcs").update(payload).eq("id", npc_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="NPC를 찾을 수 없습니다.")
+    return res.data[0]
+
+
+@router.delete("/npcs/{npc_id}")
+def delete_npc(npc_id: str, admin: dict = Depends(require_lineage_admin)):
+    supabase.table("lineage_npcs").delete().eq("id", npc_id).execute()
+    return {"message": "NPC가 삭제되었습니다."}
+
+
+@router.post("/npcs/{npc_id}/items")
+def upsert_npc_item(npc_id: str, req: NpcItemUpsert, admin: dict = Depends(require_lineage_admin)):
+    direction = req.trade_direction.strip().upper()
+    if direction not in ("SELL_TO_PLAYER", "BUY_FROM_PLAYER"):
+        raise HTTPException(status_code=400, detail="거래 구분은 SELL_TO_PLAYER 또는 BUY_FROM_PLAYER 여야 합니다.")
+    payload = {
+        "npc_id": npc_id,
+        "item_id": req.item_id,
+        "trade_direction": direction,
+        "price_adena": req.price_adena,
+    }
+    res = (
+        supabase.table("lineage_npc_items")
+        .upsert(payload, on_conflict="npc_id,item_id,trade_direction")
+        .execute()
+    )
+    return res.data[0]
+
+
+@router.delete("/npc-items/{npc_item_id}")
+def delete_npc_item(npc_item_id: str, admin: dict = Depends(require_lineage_admin)):
+    supabase.table("lineage_npc_items").delete().eq("id", npc_item_id).execute()
+    return {"message": "NPC 취급 품목이 삭제되었습니다."}
 
 
 # =========================================================
@@ -422,7 +495,14 @@ def create_item_transaction(
     req: ItemTransactionCreate,
     user: dict = Depends(require_lineage_member),
 ):
-    return apply_item_transaction(
+    note_text = req.note.strip()
+    if req.npc_id:
+        npc_res = supabase.table("lineage_npcs").select("npc_name, town_name").eq("id", req.npc_id).execute().data
+        if npc_res:
+            npc_label = f"[{npc_res[0]['town_name']} - {npc_res[0]['npc_name']}]"
+            note_text = f"{npc_label} {note_text}".strip()
+
+    tx_result = apply_item_transaction(
         user=user,
         character_id=req.character_id,
         clan_id=req.clan_id,
@@ -431,8 +511,11 @@ def create_item_transaction(
         item_id=req.item_id,
         quantity=req.quantity,
         sale_total_adena=req.sale_total_adena,
-        note=req.note,
+        note=note_text,
     )
+    if req.npc_id and tx_result.get("id"):
+        supabase.table("lineage_item_transactions").update({"npc_id": req.npc_id}).eq("id", tx_result["id"]).execute()
+    return tx_result
 
 
 @router.get("/transactions")
@@ -440,7 +523,7 @@ def list_item_transactions(user: dict = Depends(require_lineage_member)):
     res = (
         supabase.table("lineage_item_transactions")
         .select(
-            "*, lineage_items(item_name), lineage_characters(character_name), lineage_clans(clan_name)"
+            "*, lineage_items(item_name), lineage_characters(character_name), lineage_clans(clan_name), lineage_npcs(npc_name, town_name)"
         )
         .order("created_at", desc=True)
         .limit(100)

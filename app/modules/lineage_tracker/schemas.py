@@ -35,6 +35,20 @@ class ItemUpsert(BaseModel):
     category: str = Field("기타", max_length=50)
 
 
+# 6. NPC 마스터 및 NPC별 판매/매입 품목
+class NpcUpsert(BaseModel):
+    npc_name: str = Field(..., min_length=1, max_length=100)
+    business_type: str = Field(..., min_length=1, max_length=100)
+    town_name: str = Field(..., min_length=1, max_length=100)
+    memo: str = Field("", max_length=300)
+
+
+class NpcItemUpsert(BaseModel):
+    item_id: str = Field(..., min_length=1)
+    trade_direction: str = Field(..., description="SELL_TO_PLAYER(NPC가 판매) | BUY_FROM_PLAYER(NPC가 매입)")
+    price_adena: float = Field(..., ge=0)
+
+
 class InventoryItemInput(BaseModel):
     item_id: str
     quantity: int = Field(..., ge=0)
@@ -59,6 +73,7 @@ class ItemTransactionCreate(BaseModel):
     session_id: Optional[str] = None
     character_id: str
     clan_id: Optional[str] = None
+    npc_id: Optional[str] = None
     tx_type: str = Field(..., description="TO_PERSONAL | FROM_PERSONAL | TO_CLAN | FROM_CLAN | SELL | TRADE_OUT")
     item_id: str
     quantity: int = Field(..., gt=0)
