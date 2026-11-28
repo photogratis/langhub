@@ -1,0 +1,302 @@
+<div class="lineage-module-wrap">
+  <!-- 상단 서브 메뉴 탭 -->
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+    <button type="button" id="ln-tab-play" onclick="switchLineageTab('play')">⚔️ 일일 게임 기록 (시작/종료)</button>
+    <button type="button" id="ln-tab-storage" class="secondary" onclick="switchLineageTab('storage')">🏦 창고 입출고 · 판매/이전</button>
+    <button type="button" id="ln-tab-history" class="secondary" onclick="switchLineageTab('history')">📊 플레이 내역 · 내 급여</button>
+    <button type="button" id="ln-tab-admin" class="secondary ln-admin-only hidden" onclick="switchLineageTab('admin')">🛡️ 관리자 설정 · 보정 · IDR 정산</button>
+  </div>
+
+  <!-- =========================================================
+       탭 1: 일일 게임 시작 / 종료 기록
+  ========================================================= -->
+  <div id="ln-view-play">
+    <!-- 진행 중인 세션이 있을 때 표시되는 종료 폼 -->
+    <div id="ln-active-session-box" class="hidden" style="background:#fffbeb; border:2px solid #f59e0b; border-radius:10px; padding:16px; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <strong style="font-size:16px; color:#92400e;">🔥 현재 게임 진행 중 — 종료 시점 기록하기</strong>
+        <span id="ln-active-char-badge" class="tag" style="background:#f59e0b; color:#fff;"></span>
+      </div>
+      <div id="ln-active-start-summary" style="font-size:13px; color:#78350f; background:#fef3c7; padding:8px 12px; border-radius:6px; margin-bottom:12px;"></div>
+
+      <form onsubmit="handleEndLineageSession(event)">
+        <div class="row" style="margin-bottom:10px;">
+          <div>
+            <label>게임 종료 시간</label>
+            <input type="datetime-local" id="ln-end-time" required />
+          </div>
+          <div>
+            <label>종료 시점 레벨</label>
+            <input type="number" id="ln-end-level" min="1" required />
+          </div>
+          <div>
+            <label>종료 시점 경험치 (%)</label>
+            <input type="number" id="ln-end-exp" step="0.0001" min="0" required />
+          </div>
+        </div>
+
+        <div style="background:#fff; border:1px solid #fcd34d; border-radius:8px; padding:12px; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="font-size:13.5px;">🎒 종료 시점 캐릭터 보유 아이템 목록 및 수량</strong>
+            <button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" onclick="addLineageItemRow('ln-end-items-list')">+ 아이템 추가</button>
+          </div>
+          <div id="ln-end-items-list"></div>
+        </div>
+
+        <button type="submit" style="background:#d97706; width:100%; padding:12px; font-size:15px;">
+          ⏹️ 게임 종료 저장 및 시간당 아데나 수익 자동 산출
+        </button>
+      </form>
+    </div>
+
+    <!-- 진행 중인 세션이 없을 때 표시되는 시작 폼 -->
+    <div id="ln-start-session-box" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:16px;">
+      <h4 style="margin-top:0; color:#0f172a;">▶️ 게임 시작 기록 등록</h4>
+      <form onsubmit="handleStartLineageSession(event)">
+        <div class="row" style="margin-bottom:10px;">
+          <div>
+            <label>계정 및 캐릭터 선택 (DB)</label>
+            <select id="ln-start-char" required onchange="onSelectStartCharacter()"></select>
+          </div>
+          <div>
+            <label>게임 시작 시간</label>
+            <input type="datetime-local" id="ln-start-time" required />
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:10px;">
+          <div>
+            <label>시작 시점 레벨</label>
+            <input type="number" id="ln-start-level" min="1" required />
+          </div>
+          <div>
+            <label>시작 시점 경험치 (%)</label>
+            <input type="number" id="ln-start-exp" step="0.0001" min="0" required />
+          </div>
+        </div>
+
+        <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="font-size:13.5px;">🎒 시작 시점 캐릭터 보유 아이템 목록 및 수량 (DB 재고 자동 불러오기)</strong>
+            <button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" onclick="addLineageItemRow('ln-start-items-list')">+ 아이템 추가</button>
+          </div>
+          <div id="ln-start-items-list"></div>
+        </div>
+
+        <button type="submit" style="background:#2563eb; width:100%; padding:12px; font-size:15px;">
+          🎮 게임 시작 기록하기
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       탭 2: 개인창고 / 혈맹창고 입출고 & 아이템 판매/이전
+  ========================================================= -->
+  <div id="ln-view-storage" class="hidden">
+    <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; padding:14px; margin-bottom:16px;">
+      <h4 style="margin-top:0; color:#0369a1;">🔄 아이템 창고 이동 (개인창고 · 혈맹창고) 및 판매/이전 등록</h4>
+      <form onsubmit="handleCreateLineageTransaction(event)">
+        <div class="row" style="margin-bottom:8px;">
+          <div>
+            <label>대상 캐릭터</label>
+            <select id="ln-tx-char" required onchange="loadAllInventoriesView()"></select>
+          </div>
+          <div>
+            <label>혈맹 선택 (혈맹창고 이동 시)</label>
+            <select id="ln-tx-clan" onchange="loadAllInventoriesView()"></select>
+          </div>
+          <div>
+            <label>거래 / 이동 유형</label>
+            <select id="ln-tx-type" onchange="toggleTxSaleField()">
+              <option value="TO_PERSONAL">📥 캐릭터 → 개인창고 입고</option>
+              <option value="FROM_PERSONAL">📤 개인창고 → 캐릭터 출고</option>
+              <option value="TO_CLAN">🏰 캐릭터 → 혈맹창고 입고</option>
+              <option value="FROM_CLAN">⚔️ 혈맹창고 → 캐릭터 출고</option>
+              <option value="SELL">💰 아이템 판매 (아데나 획득)</option>
+              <option value="TRADE_OUT">🤝 외부 거래/지급 이전</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row" style="margin-bottom:8px;">
+          <div>
+            <label>아이템 선택</label>
+            <select id="ln-tx-item" required></select>
+          </div>
+          <div>
+            <label>수량</label>
+            <input type="number" id="ln-tx-qty" min="1" required />
+          </div>
+          <div id="ln-tx-sale-box" class="hidden">
+            <label>판매 획득 아데나 총액 (비워두면 기준단가×수량 자동계산)</label>
+            <input type="number" id="ln-tx-sale-adena" min="0" placeholder="예: 1500000" />
+          </div>
+          <div>
+            <label>메모 (거래처/사유)</label>
+            <input type="text" id="ln-tx-note" placeholder="예: 거래소 판매 / 혈맹 세금 납부" />
+          </div>
+        </div>
+
+        <button type="submit" style="background:#0284c7;">이동 / 판매 기록 저장</button>
+      </form>
+    </div>
+
+    <!-- 현재 재고 3단 비교 (캐릭터 인벤토리 / 개인창고 / 혈맹창고) -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:12px; margin-bottom:16px;">
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <h5 style="margin:0 0 8px 0; color:#1e293b;">🎒 캐릭터 인벤토리 현황</h5>
+        <div id="ln-inv-character" style="font-size:13px;"></div>
+      </div>
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <h5 style="margin:0 0 8px 0; color:#1d4ed8;">🔐 개인창고 현황</h5>
+        <div id="ln-inv-personal" style="font-size:13px;"></div>
+      </div>
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <h5 style="margin:0 0 8px 0; color:#7e22ce;">🏰 혈맹창고 현황</h5>
+        <div id="ln-inv-clan" style="font-size:13px;"></div>
+      </div>
+    </div>
+
+    <!-- 최근 입출고/판매 원장 & 관리자 보정 이력 -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px;">
+      <div>
+        <h5 style="margin:0 0 8px 0;">📜 최근 창고 이동 및 판매 원장</h5>
+        <div id="ln-tx-history-list"></div>
+      </div>
+      <div>
+        <h5 style="margin:0 0 8px 0; color:#b91c1c;">🛠️ 관리자 재고 보정 감사 로그 (영구 기록)</h5>
+        <div id="ln-adj-history-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       탭 3: 플레이 기록 및 내 IDR 급여 지급 내역
+  ========================================================= -->
+  <div id="ln-view-history" class="hidden">
+    <h4 style="margin-top:0;">⏱️ 일일 플레이 세션 및 시간당 아데나 수익 기록</h4>
+    <div id="ln-sessions-list" style="margin-bottom:20px;"></div>
+
+    <h4>💵 내 인도네시아 루피아(IDR) 급여 지급 내역</h4>
+    <div id="ln-my-payouts-list"></div>
+  </div>
+
+  <!-- =========================================================
+       탭 4: LINEAGE_ADMIN 전용 관리 · 수량 보정 · IDR 정산
+  ========================================================= -->
+  <div id="ln-view-admin" class="hidden ln-admin-only">
+    <!-- 1. 수량 불일치 보정 (LINEAGE_ADMIN 전용) -->
+    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:14px; margin-bottom:16px;">
+      <h4 style="margin-top:0; color:#991b1b;">🛠️ 재고 수량 강제 보정 (LINEAGE_ADMIN 전용 · 감사 로그 영구 기록)</h4>
+      <form onsubmit="handleAdminAdjustInventory(event)">
+        <div class="row" style="margin-bottom:8px;">
+          <div>
+            <label>보정 대상 창고</label>
+            <select id="ln-adj-storage-type" onchange="toggleAdjustTargetFields()">
+              <option value="CHARACTER">캐릭터 인벤토리</option>
+              <option value="PERSONAL">개인창고</option>
+              <option value="CLAN">혈맹창고</option>
+            </select>
+          </div>
+          <div id="ln-adj-char-box">
+            <label>대상 캐릭터</label>
+            <select id="ln-adj-char"></select>
+          </div>
+          <div id="ln-adj-clan-box" class="hidden">
+            <label>대상 혈맹</label>
+            <select id="ln-adj-clan"></select>
+          </div>
+          <div>
+            <label>보정할 아이템</label>
+            <select id="ln-adj-item"></select>
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <div>
+            <label>보정 후 확정 수량</label>
+            <input type="number" id="ln-adj-after-qty" min="0" required />
+          </div>
+          <div style="flex:2;">
+            <label>보정 사유 (필수 기록)</label>
+            <input type="text" id="ln-adj-reason" required placeholder="예: 소모품(물약/주문서) 사냥 소진분 반영 또는 오기재 정정" />
+          </div>
+        </div>
+        <button type="submit" style="background:#dc2626;">수량 보정 적용 및 감사 로그 남기기</button>
+      </form>
+    </div>
+
+    <!-- 2. 기간별 게이머 시간당 아데나 집계 & IDR 급여 책정·지급 -->
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px; margin-bottom:16px;">
+      <h4 style="margin-top:0; color:#166534;">💸 게이머별 시간당 획득 아데나 집계 및 루피아(IDR) 급여 지급</h4>
+      <div class="row" style="margin-bottom:10px; align-items:flex-end;">
+        <div>
+          <label>집계 시작일</label>
+          <input type="date" id="ln-pay-start" />
+        </div>
+        <div>
+          <label>집계 종료일</label>
+          <input type="date" id="ln-pay-end" />
+        </div>
+        <div>
+          <button type="button" style="background:#16a34a;" onclick="loadWorkerPayoutSummary()">🔍 기간별 획득 아데나 집계</button>
+        </div>
+      </div>
+      <div id="ln-worker-summary-list"></div>
+    </div>
+
+    <!-- 3. 마스터 관리 (아이템 아데나 시세 / 계정·캐릭터 / 서버·혈맹) -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+      <!-- 아이템 아데나 단가 등록 -->
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <h5 style="margin-top:0;">💎 아이템 아데나 환산 단가 등록/수정</h5>
+        <form onsubmit="handleUpsertLineageItem(event)">
+          <label>아이템명</label>
+          <input type="text" id="ln-item-name" required placeholder="예: 축복받은 무기 마법 주문서" style="margin-bottom:6px;" />
+          <label>1개당 아데나 가치 (Adena)</label>
+          <input type="number" id="ln-item-price" step="0.01" min="0" required placeholder="예: 250000" style="margin-bottom:6px;" />
+          <label>분류</label>
+          <select id="ln-item-cat" style="margin-bottom:8px;">
+            <option value="재화">재화</option>
+            <option value="주문서">주문서</option>
+            <option value="장비">장비</option>
+            <option value="재료">재료</option>
+            <option value="기타">기타</option>
+          </select>
+          <button type="submit" style="width:100%;">단가 저장</button>
+        </form>
+      </div>
+
+      <!-- 게임 계정 및 캐릭터 등록 -->
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <h5 style="margin-top:0;">🧙 게임 계정 및 캐릭터 등록</h5>
+        <form onsubmit="handleCreateLineageCharacter(event)">
+          <label>소속 서버 / 혈맹</label>
+          <select id="ln-char-clan" style="margin-bottom:6px;"></select>
+          <label>게임 계정명</label>
+          <input type="text" id="ln-char-account" required placeholder="예: lineage_acc_01" style="margin-bottom:6px;" />
+          <label>캐릭터명</label>
+          <input type="text" id="ln-char-name" required placeholder="예: 데포로쥬기사" style="margin-bottom:6px;" />
+          <div class="row" style="margin-bottom:8px;">
+            <div><label>현재 레벨</label><input type="number" id="ln-char-level" value="1" min="1" /></div>
+            <div><label>경험치(%)</label><input type="number" id="ln-char-exp" value="0" step="0.0001" min="0" /></div>
+          </div>
+          <button type="submit" style="width:100%;">캐릭터 등록</button>
+        </form>
+      </div>
+
+      <!-- 서버 및 혈맹 추가 -->
+      <div style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px;">
+        <h5 style="margin-top:0;">🏰 서버 및 혈맹 추가 (확장용)</h5>
+        <form onsubmit="handleCreateLineageClan(event)">
+          <label>서버명</label>
+          <input type="text" id="ln-clan-server" value="기본서버" required style="margin-bottom:6px;" />
+          <label>혈맹명</label>
+          <input type="text" id="ln-clan-name" required placeholder="예: 제2작업혈맹" style="margin-bottom:6px;" />
+          <label>설명</label>
+          <input type="text" id="ln-clan-desc" placeholder="메모" style="margin-bottom:8px;" />
+          <button type="submit" style="width:100%;">서버/혈맹 추가</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

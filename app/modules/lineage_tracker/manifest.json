@@ -1,0 +1,16 @@
+{
+  "module_id": "lineage_tracker",
+  "name": "리니지 파밍 기록 · 루피아 정산",
+  "name_id": "Catatan Farming Lineage & Penggajian IDR",
+  "description": "일일 플레이 시간·경험치·인벤토리·창고 입출고·판매 아데나 환산 및 시간당 획득량 기준 인도네시아 루피아(IDR) 급여 정산 시스템",
+  "description_id": "Pencatatan sesi bermain, inventaris, gudang, konversi Adena per jam, dan pembayaran gaji IDR.",
+  "version": "1.0.0",
+  "type": "feature",
+  "dependencies": [],
+  "ui": {
+    "asset_module": "lineage_tracker",
+    "html": "widget.html",
+    "js": "widget.js",
+    "init_fn": "initLineageTrackerModule"
+  }
+}
